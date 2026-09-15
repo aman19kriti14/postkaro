@@ -27,7 +27,7 @@ public class PostService {
 				.tone((String) data.get("tone")).status(PostStatus.DRAFT).build();
 
 		if (data.get("channels") instanceof List) {
-		    post.setChannels(new HashSet<>((List<String>) data.get("channels")));
+			post.setChannels(new HashSet<>((List<String>) data.get("channels")));
 		}
 		//
 
@@ -46,8 +46,7 @@ public class PostService {
 		if (data.containsKey("tone"))
 			post.setTone((String) data.get("tone"));
 		if (data.get("channels") instanceof List)
-			post.setChannels((List<String>) data.get("channels"));
-
+			post.setChannels(new HashSet<>((List<String>) data.get("channels")));
 		return postRepository.save(post);
 	}
 
