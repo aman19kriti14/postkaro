@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import in.postkaro.entity.Post;
+import in.postkaro.entity.PostMedia;
 import in.postkaro.entity.User;
 import in.postkaro.enums.PostStatus;
 import in.postkaro.repository.PostRepository;
@@ -23,15 +24,38 @@ public class PostService {
 
 	@Transactional
 	public Post createDraft(User user, Map<String, Object> data) {
-		Post post = Post.builder().user(user).caption((String) data.get("caption")).prompt((String) data.get("prompt"))
-				.tone((String) data.get("tone")).status(PostStatus.DRAFT).build();
+	    Post post = Post.builder()
+	            .user(user)
+	            .caption((String) data.get("caption"))
+	            .prompt((String) data.get("prompt"))
+	            .tone((String) data.get("tone"))
+	            .status(PostStatus.DRAFT)
+	            .build();
 
-		if (data.get("channels") instanceof List) {
-			post.setChannels(new HashSet<>((List<String>) data.get("channels")));
-		}
-		//
+	    if (data.get("channels") instanceof List) {
+	        post.setChannels(new HashSet<>((List<String>) data.get("channels")));
+	    }
 
-		return postRepository.save(post);
+	    post = postRepository.save(post);
+
+	    // Save media if present
+	    String mediaUrl = (String) data.get("mediaUrl");
+	    String mediaType = (String) data.get("mediaType");
+	    System.out.println("DRAFT MEDIA: url=" + mediaUrl + " type=" + mediaType);
+
+	    if (mediaUrl != null && !mediaUrl.isBlank()) {
+	        PostMedia media = PostMedia.builder()
+	                .post(post)
+	                .type(mediaType != null ? mediaType : "image")
+	                .url(mediaUrl)
+	                .dimensions("1024x1024")
+	                .sortOrder(0)
+	                .build();
+	        post.getMedia().add(media);
+	        post = postRepository.save(post);
+	    }
+
+	    return post;
 	}
 
 	@Transactional
