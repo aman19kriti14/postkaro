@@ -40,9 +40,9 @@ public class PublishService {
 			for (String channel : post.getChannels()) {
 				SocialPlatform platform = SocialPlatform.valueOf(channel.toUpperCase());
 				List<ConnectedAccount> accounts = connectedAccountRepository.findByUserIdAndPlatform(userId, platform);
-
-				if (accounts.isEmpty())
-					continue;
+				if (accounts.isEmpty()) {
+					throw new RuntimeException("No connected account found for " + platform);
+				}
 
 				ConnectedAccount account = accounts.get(0);
 
@@ -68,19 +68,22 @@ public class PublishService {
 	private void publishToInstagram(Post post, ConnectedAccount account) {
 		String igUserId = account.getPlatformUserId();
 		String token = account.getAccessToken();
+		System.out.println("========== INSTAGRAM DEBUG ==========");
+		System.out.println("Instagram User ID: " + igUserId);
+		System.out.println("Access Token Present: " + (token != null && !token.isBlank()));
+		System.out.println("=====================================");
 
 		boolean hasImage = post.getMedia() != null
 				&& post.getMedia().stream().anyMatch(m -> "image".equals(m.getType()));
 
 		if (!hasImage) {
-			System.out.println("Instagram requires an image. Skipping.");
-			return;
+			throw new RuntimeException("Instagram requires an image.");
 		}
 
 		PostMedia image = post.getMedia().stream().filter(m -> "image".equals(m.getType())).findFirst().orElseThrow();
 
 		// Step 1: Create media container using URI.create to prevent double-encoding
-		String rawContainerUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media" + "?image_url="
+		String rawContainerUrl = "https://graph.facebook.com/v21.0/" + igUserId + "/media" + "?image_url="
 				+ image.getUrl() + "&caption="
 				+ java.net.URLEncoder.encode(post.getCaption(), java.nio.charset.StandardCharsets.UTF_8)
 				+ "&access_token=" + token;
@@ -94,7 +97,7 @@ public class PublishService {
 		System.out.println("IG CONTAINER ID: " + containerId);
 
 		// Step 2: Publish
-		String rawPublishUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media_publish" + "?creation_id="
+		String rawPublishUrl = "https://graph.facebook.com/v21.0/" + igUserId + "/media_publish" + "?creation_id="
 				+ containerId + "&access_token=" + token;
 
 		Map<String, Object> result = restClient.post().uri(java.net.URI.create(rawPublishUrl)).retrieve()
