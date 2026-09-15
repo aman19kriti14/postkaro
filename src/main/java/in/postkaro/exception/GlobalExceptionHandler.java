@@ -39,8 +39,10 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<ApiResponse<Void>> handleGeneric(Exception ex) {
+		System.out.println("ERROR: " + ex.getClass().getName() + " - " + ex.getMessage());
+		ex.printStackTrace();
 		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-				.body(ApiResponse.error("Something went wrong. Please try again."));
+				.body(ApiResponse.error("Error: " + ex.getMessage()));
 	}
 
 	@ExceptionHandler(IllegalArgumentException.class)
