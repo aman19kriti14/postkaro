@@ -1,6 +1,7 @@
 package in.postkaro.service;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -26,7 +27,7 @@ public class PostService {
 				.tone((String) data.get("tone")).status(PostStatus.DRAFT).build();
 
 		if (data.get("channels") instanceof List) {
-			post.setChannels((List<String>) data.get("channels"));
+		    post.setChannels(new HashSet<>((List<String>) data.get("channels")));
 		}
 
 		return postRepository.save(post);
