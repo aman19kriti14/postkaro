@@ -69,8 +69,6 @@ public class PublishService {
 		String igUserId = account.getPlatformUserId();
 		String token = account.getAccessToken();
 
-		System.out.println("IG PUBLISH: userId=" + igUserId + " tokenLength=" + (token != null ? token.length() : 0));
-
 		boolean hasImage = post.getMedia() != null
 				&& post.getMedia().stream().anyMatch(m -> "image".equals(m.getType()));
 
@@ -81,23 +79,26 @@ public class PublishService {
 
 		PostMedia image = post.getMedia().stream().filter(m -> "image".equals(m.getType())).findFirst().orElseThrow();
 
-		// Step 1: Create media container — DON'T encode the image URL
-		String caption = java.net.URLEncoder.encode(post.getCaption(), java.nio.charset.StandardCharsets.UTF_8);
-		String containerUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media" + "?image_url="
-				+ image.getUrl() + "&caption=" + caption + "&access_token=" + token;
+		// Step 1: Create media container using URI.create to prevent double-encoding
+		String rawContainerUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media" + "?image_url="
+				+ image.getUrl() + "&caption="
+				+ java.net.URLEncoder.encode(post.getCaption(), java.nio.charset.StandardCharsets.UTF_8)
+				+ "&access_token=" + token;
 
-		System.out.println("IG CONTAINER URL: " + containerUrl.substring(0, Math.min(200, containerUrl.length())));
+		System.out.println("IG RAW URL: " + rawContainerUrl.substring(0, Math.min(200, rawContainerUrl.length())));
 
-		Map<String, Object> container = restClient.post().uri(containerUrl).retrieve().body(Map.class);
+		Map<String, Object> container = restClient.post().uri(java.net.URI.create(rawContainerUrl)).retrieve()
+				.body(Map.class);
 
 		String containerId = (String) container.get("id");
 		System.out.println("IG CONTAINER ID: " + containerId);
 
 		// Step 2: Publish
-		String publishUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media_publish" + "?creation_id="
+		String rawPublishUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media_publish" + "?creation_id="
 				+ containerId + "&access_token=" + token;
 
-		Map<String, Object> result = restClient.post().uri(publishUrl).retrieve().body(Map.class);
+		Map<String, Object> result = restClient.post().uri(java.net.URI.create(rawPublishUrl)).retrieve()
+				.body(Map.class);
 
 		System.out.println("PUBLISHED to Instagram: " + result.get("id"));
 	}
