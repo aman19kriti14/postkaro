@@ -39,13 +39,7 @@ public class OAuthController {
 	@GetMapping("/meta/url")
 	public ResponseEntity<ApiResponse<Map<String, String>>> getMetaOAuthUrl(@AuthenticationPrincipal User user,
 			@RequestParam(defaultValue = "instagram") String platform) {
-		String scope;
-		if ("facebook".equals(platform)) {
-			scope = "public_profile,email,pages_show_list";
-		} else {
-			// Instagram — start with basic scopes, add more after Meta review
-			scope = "public_profile,email,pages_show_list";
-		}
+		String scope = "email";
 
 		String state = user.getId().toString() + "|" + platform;
 
