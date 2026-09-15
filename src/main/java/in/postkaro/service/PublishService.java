@@ -69,32 +69,38 @@ public class PublishService {
 		String igUserId = account.getPlatformUserId();
 		String token = account.getAccessToken();
 
-		// Check if we have media
+		System.out.println("IG PUBLISH: userId=" + igUserId + " tokenLength=" + (token != null ? token.length() : 0));
+
 		boolean hasImage = post.getMedia() != null
 				&& post.getMedia().stream().anyMatch(m -> "image".equals(m.getType()));
 
-		if (hasImage) {
-			PostMedia image = post.getMedia().stream().filter(m -> "image".equals(m.getType())).findFirst()
-					.orElseThrow();
-
-			// Step 1: Create media container
-			Map<String, Object> container = restClient.post()
-					.uri(GRAPH_API + "/" + igUserId + "/media" + "?image_url=" + image.getUrl() + "&caption="
-							+ java.net.URLEncoder.encode(post.getCaption(), java.nio.charset.StandardCharsets.UTF_8)
-							+ "&access_token=" + token)
-					.retrieve().body(Map.class);
-
-			String containerId = (String) container.get("id");
-
-			// Step 2: Publish
-			restClient.post().uri(GRAPH_API + "/" + igUserId + "/media_publish" + "?creation_id=" + containerId
-					+ "&access_token=" + token).retrieve().body(Map.class);
-
-			System.out.println("PUBLISHED to Instagram: " + containerId);
-		} else {
-			// Text-only not supported on Instagram — skip or throw
+		if (!hasImage) {
 			System.out.println("Instagram requires an image. Skipping.");
+			return;
 		}
+
+		PostMedia image = post.getMedia().stream().filter(m -> "image".equals(m.getType())).findFirst().orElseThrow();
+
+		// Step 1: Create media container
+		String containerUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media" + "?image_url="
+				+ java.net.URLEncoder.encode(image.getUrl(), java.nio.charset.StandardCharsets.UTF_8) + "&caption="
+				+ java.net.URLEncoder.encode(post.getCaption(), java.nio.charset.StandardCharsets.UTF_8)
+				+ "&access_token=" + token;
+
+		System.out.println("IG CONTAINER URL: " + containerUrl.substring(0, Math.min(200, containerUrl.length())));
+
+		Map<String, Object> container = restClient.post().uri(containerUrl).retrieve().body(Map.class);
+
+		String containerId = (String) container.get("id");
+		System.out.println("IG CONTAINER ID: " + containerId);
+
+		// Step 2: Publish
+		String publishUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media_publish" + "?creation_id="
+				+ containerId + "&access_token=" + token;
+
+		Map<String, Object> result = restClient.post().uri(publishUrl).retrieve().body(Map.class);
+
+		System.out.println("PUBLISHED to Instagram: " + result.get("id"));
 	}
 
 	@SuppressWarnings("unchecked")
