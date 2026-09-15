@@ -43,7 +43,7 @@ public class OAuthController {
 		String state = user.getId().toString() + "|" + platform;
 
 		String url = "https://www.facebook.com/v21.0/dialog/oauth" + "?client_id=" + metaAppId + "&redirect_uri="
-				+ URLEncoder.encode(metaRedirectUri, StandardCharsets.UTF_8) + "&state="
+				+ URLEncoder.encode(metaRedirectUri, StandardCharsets.UTF_8) + "&config_id=1892512525246291" + "&state="
 				+ URLEncoder.encode(state, StandardCharsets.UTF_8) + "&response_type=code";
 
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("url", url), "OK"));
