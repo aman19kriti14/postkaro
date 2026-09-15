@@ -20,7 +20,9 @@ import in.postkaro.dto.response.ApiResponse;
 import in.postkaro.entity.Post;
 import in.postkaro.entity.User;
 import in.postkaro.service.AiService;
+import in.postkaro.service.MediaService;
 import in.postkaro.service.PostService;
+import in.postkaro.service.PublishService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -30,6 +32,8 @@ public class PostController {
 
 	private final PostService postService;
 	private final AiService aiService;
+	private final MediaService mediaService;
+	private final PublishService publishService;
 
 	@PostMapping("/generate-caption")
 	public ResponseEntity<ApiResponse<Map<String, String>>> generateCaption(@AuthenticationPrincipal User user,
@@ -107,5 +111,28 @@ public class PostController {
 		}).toList();
 
 		return ResponseEntity.ok(ApiResponse.ok(result, "OK"));
+	}
+
+	@PostMapping("/generate-image")
+	public ResponseEntity<ApiResponse<Map<String, Object>>> generateImage(@AuthenticationPrincipal User user,
+			@RequestBody Map<String, Object> body) {
+		String prompt = (String) body.get("prompt");
+		String size = (String) body.getOrDefault("size", "square");
+		Map<String, Object> result = mediaService.generateImage(prompt, size);
+		return ResponseEntity.ok(ApiResponse.ok(result, "Image generated."));
+	}
+
+	@PostMapping("/generate-video")
+	public ResponseEntity<ApiResponse<Map<String, Object>>> generateVideo(@AuthenticationPrincipal User user,
+			@RequestBody Map<String, Object> body) {
+		String prompt = (String) body.get("prompt");
+		Map<String, Object> result = mediaService.generateVideo(prompt);
+		return ResponseEntity.ok(ApiResponse.ok(result, "Video generated."));
+	}
+
+	@PostMapping("/{id}/publish")
+	public ResponseEntity<ApiResponse<Void>> publishPost(@AuthenticationPrincipal User user, @PathVariable UUID id) {
+		publishService.publishPost(id, user.getId());
+		return ResponseEntity.ok(ApiResponse.ok(null, "Post published."));
 	}
 }
