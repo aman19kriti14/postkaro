@@ -81,11 +81,10 @@ public class PublishService {
 
 		PostMedia image = post.getMedia().stream().filter(m -> "image".equals(m.getType())).findFirst().orElseThrow();
 
-		// Step 1: Create media container
+		// Step 1: Create media container — DON'T encode the image URL
+		String caption = java.net.URLEncoder.encode(post.getCaption(), java.nio.charset.StandardCharsets.UTF_8);
 		String containerUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media" + "?image_url="
-				+ java.net.URLEncoder.encode(image.getUrl(), java.nio.charset.StandardCharsets.UTF_8) + "&caption="
-				+ java.net.URLEncoder.encode(post.getCaption(), java.nio.charset.StandardCharsets.UTF_8)
-				+ "&access_token=" + token;
+				+ image.getUrl() + "&caption=" + caption + "&access_token=" + token;
 
 		System.out.println("IG CONTAINER URL: " + containerUrl.substring(0, Math.min(200, containerUrl.length())));
 
