@@ -53,17 +53,40 @@ public class MediaService {
 		String videoPrompt = craftVideoPrompt(userPrompt);
 		System.out.println("VIDEO PROMPT: " + videoPrompt);
 
-		Map<String, Object> body = Map.of("prompt", videoPrompt, "num_frames", 49, "fps", 8, "resolution", "512");
+		Map<String, Object> body = Map.of("prompt", videoPrompt, "num_frames", 81, "fps", 24, "resolution",
+				Map.of("width", 512, "height", 512));
 
-		Map<String, Object> response = restClient.post().uri("https://fal.run/fal-ai/fast-animatediff/text-to-video")
-				.header("Authorization", "Key " + falApiKey).contentType(MediaType.APPLICATION_JSON).body(body)
-				.retrieve().body(Map.class);
+		try {
+			// Try Kling model first
+			Map<String, Object> response = restClient.post()
+					.uri("https://fal.run/fal-ai/kling-video/v1/standard/text-to-video")
+					.header("Authorization", "Key " + falApiKey).contentType(MediaType.APPLICATION_JSON)
+					.body(Map.of("prompt", videoPrompt, "duration", "5", "aspect_ratio", "1:1")).retrieve()
+					.body(Map.class);
 
-		if (response != null && response.containsKey("video")) {
-			Map<String, Object> video = (Map<String, Object>) response.get("video");
-			return Map.of("url", video.get("url"), "type", "video", "prompt", videoPrompt);
+			if (response != null && response.containsKey("video")) {
+				Map<String, Object> video = (Map<String, Object>) response.get("video");
+				return Map.of("url", video.get("url"), "type", "video", "prompt", videoPrompt);
+			}
+		} catch (Exception e) {
+			System.out.println("Kling failed, trying minimax: " + e.getMessage());
 		}
-		throw new RuntimeException("No video generated");
+
+		// Fallback: Minimax
+		try {
+			Map<String, Object> response = restClient.post().uri("https://fal.run/fal-ai/minimax-video")
+					.header("Authorization", "Key " + falApiKey).contentType(MediaType.APPLICATION_JSON)
+					.body(Map.of("prompt", videoPrompt)).retrieve().body(Map.class);
+
+			if (response != null && response.containsKey("video")) {
+				Map<String, Object> video = (Map<String, Object>) response.get("video");
+				return Map.of("url", video.get("url"), "type", "video", "prompt", videoPrompt);
+			}
+		} catch (Exception e) {
+			System.out.println("Minimax also failed: " + e.getMessage());
+		}
+
+		throw new RuntimeException("Video generation failed. Please try again.");
 	}
 
 	@SuppressWarnings("unchecked")
