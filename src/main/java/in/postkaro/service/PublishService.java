@@ -115,7 +115,9 @@ public class PublishService {
 		PostMedia image = post.getMedia().stream().filter(m -> "image".equalsIgnoreCase(m.getType())).findFirst()
 				.orElseThrow(() -> new RuntimeException("Instagram image not found."));
 
-		String imageUrl = image.getUrl();
+		String imageUrl = getInstagramImageUrl(image.getUrl());
+
+		System.out.println("IG IMAGE URL: " + imageUrl);
 
 		if (imageUrl == null || imageUrl.isBlank()) {
 			throw new RuntimeException("Instagram image URL is missing.");
@@ -173,6 +175,18 @@ public class PublishService {
 		}
 
 		System.out.println("PUBLISHED to Instagram: " + result.get("id"));
+	}
+
+	private String getInstagramImageUrl(String imageUrl) {
+		if (imageUrl == null || imageUrl.isBlank()) {
+			throw new RuntimeException("Image URL is missing.");
+		}
+
+		if (imageUrl.contains("/image/upload/")) {
+			return imageUrl.replace("/image/upload/", "/image/upload/f_jpg,q_auto/");
+		}
+
+		return imageUrl;
 	}
 
 	@SuppressWarnings("unchecked")
