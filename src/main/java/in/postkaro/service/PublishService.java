@@ -155,6 +155,8 @@ public class PublishService {
 
 		System.out.println("IG CONTAINER ID: " + containerId);
 
+		waitForInstagramMediaReady(containerId, token);
+
 		/*
 		 * ============================================================ STEP 2: PUBLISH
 		 * CONTAINER ============================================================
@@ -222,5 +224,46 @@ public class PublishService {
 		}
 
 		System.out.println("PUBLISHED to Facebook page: " + pageId);
+	}
+
+	private void waitForInstagramMediaReady(String containerId, String token) {
+
+		for (int attempt = 1; attempt <= 10; attempt++) {
+
+			try {
+				Thread.sleep(2000);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new RuntimeException("Interrupted while waiting for Instagram media.", e);
+			}
+
+			System.out.println("Checking Instagram media status. Attempt: " + attempt);
+
+			Map<String, Object> status = restClient.get()
+					.uri(uriBuilder -> uriBuilder.scheme("https").host("graph.instagram.com")
+							.path("/v21.0/" + containerId).queryParam("fields", "status_code,status")
+							.queryParam("access_token", token).build())
+					.retrieve().body(Map.class);
+
+			System.out.println("IG MEDIA STATUS: " + status);
+
+			if (status == null) {
+				continue;
+			}
+
+			String statusCode = String.valueOf(status.get("status_code"));
+
+			if ("FINISHED".equalsIgnoreCase(statusCode)) {
+				System.out.println("Instagram media is READY.");
+				return;
+			}
+
+			if ("ERROR".equalsIgnoreCase(statusCode) || "EXPIRED".equalsIgnoreCase(statusCode)) {
+
+				throw new RuntimeException("Instagram media processing failed: " + status);
+			}
+		}
+
+		throw new RuntimeException("Instagram media was not ready after waiting.");
 	}
 }
