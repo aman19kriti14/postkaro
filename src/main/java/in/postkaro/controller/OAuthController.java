@@ -41,9 +41,10 @@ public class OAuthController {
 			@RequestParam(defaultValue = "instagram") String platform) {
 		String scope;
 		if ("facebook".equals(platform)) {
-			scope = "pages_show_list,pages_read_engagement,pages_manage_posts,pages_read_user_content";
+			scope = "public_profile,email,pages_show_list";
 		} else {
-			scope = "instagram_basic,instagram_content_publish,instagram_manage_insights,pages_show_list,pages_read_engagement";
+			// Instagram — start with basic scopes, add more after Meta review
+			scope = "public_profile,email,pages_show_list";
 		}
 
 		String state = user.getId().toString() + "|" + platform;
