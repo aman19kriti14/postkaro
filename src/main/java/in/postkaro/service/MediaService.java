@@ -19,11 +19,19 @@ public class MediaService {
 	@Value("${openai.api.key:}")
 	private String openaiApiKey;
 
+	@Value("${cloudinary.cloud-name:}")
+	private String cloudName;
+
+	@Value("${cloudinary.api-key:}")
+	private String cloudApiKey;
+
+	@Value("${cloudinary.api-secret:}")
+	private String cloudApiSecret;
+
 	private final RestClient restClient = RestClient.create();
 
 	@SuppressWarnings("unchecked")
 	public Map<String, Object> generateImage(String userPrompt, String size) {
-		// Step 1: Use OpenAI to create a proper image prompt
 		String imagePrompt = craftImagePrompt(userPrompt);
 		System.out.println("IMAGE PROMPT: " + imagePrompt);
 
@@ -42,7 +50,12 @@ public class MediaService {
 
 		List<Map<String, Object>> images = (List<Map<String, Object>>) response.get("images");
 		if (images != null && !images.isEmpty()) {
-			return Map.of("url", images.get(0).get("url"), "width", images.get(0).getOrDefault("width", 1024), "height",
+			String falUrl = (String) images.get(0).get("url");
+
+			// Upload to Cloudinary for permanent URL
+			String permanentUrl = uploadToCloudinary(falUrl);
+
+			return Map.of("url", permanentUrl, "width", images.get(0).getOrDefault("width", 1024), "height",
 					images.get(0).getOrDefault("height", 1024), "prompt", imagePrompt);
 		}
 		throw new RuntimeException("No image generated");
@@ -53,11 +66,7 @@ public class MediaService {
 		String videoPrompt = craftVideoPrompt(userPrompt);
 		System.out.println("VIDEO PROMPT: " + videoPrompt);
 
-		Map<String, Object> body = Map.of("prompt", videoPrompt, "num_frames", 81, "fps", 24, "resolution",
-				Map.of("width", 512, "height", 512));
-
 		try {
-			// Try Kling model first
 			Map<String, Object> response = restClient.post()
 					.uri("https://fal.run/fal-ai/kling-video/v1/standard/text-to-video")
 					.header("Authorization", "Key " + falApiKey).contentType(MediaType.APPLICATION_JSON)
@@ -66,27 +75,60 @@ public class MediaService {
 
 			if (response != null && response.containsKey("video")) {
 				Map<String, Object> video = (Map<String, Object>) response.get("video");
-				return Map.of("url", video.get("url"), "type", "video", "prompt", videoPrompt);
+				String falUrl = (String) video.get("url");
+				String permanentUrl = uploadToCloudinary(falUrl);
+				return Map.of("url", permanentUrl, "type", "video", "prompt", videoPrompt);
 			}
 		} catch (Exception e) {
-			System.out.println("Kling failed, trying minimax: " + e.getMessage());
+			System.out.println("Video gen failed: " + e.getMessage());
 		}
 
-		// Fallback: Minimax
+		throw new RuntimeException("Video generation failed.");
+	}
+
+	@SuppressWarnings("unchecked")
+	private String uploadToCloudinary(String sourceUrl) {
+		String uploadUrl = "https://api.cloudinary.com/v1_1/" + cloudName + "/auto/upload";
+
+		// Use unsigned upload with fetch URL
+		Map<String, Object> uploadBody = Map.of("file", sourceUrl, "upload_preset", "postkaro_unsigned");
+
+		// First try unsigned. If that fails, use signed.
 		try {
-			Map<String, Object> response = restClient.post().uri("https://fal.run/fal-ai/minimax-video")
-					.header("Authorization", "Key " + falApiKey).contentType(MediaType.APPLICATION_JSON)
-					.body(Map.of("prompt", videoPrompt)).retrieve().body(Map.class);
+			Map<String, Object> result = restClient.post().uri(uploadUrl).contentType(MediaType.APPLICATION_JSON)
+					.body(uploadBody).retrieve().body(Map.class);
 
-			if (response != null && response.containsKey("video")) {
-				Map<String, Object> video = (Map<String, Object>) response.get("video");
-				return Map.of("url", video.get("url"), "type", "video", "prompt", videoPrompt);
-			}
+			String url = (String) result.get("secure_url");
+			System.out.println("CLOUDINARY URL: " + url);
+			return url;
 		} catch (Exception e) {
-			System.out.println("Minimax also failed: " + e.getMessage());
+			System.out.println("Unsigned upload failed, trying signed: " + e.getMessage());
 		}
 
-		throw new RuntimeException("Video generation failed. Please try again.");
+		// Signed upload fallback
+		long timestamp = System.currentTimeMillis() / 1000;
+		String toSign = "timestamp=" + timestamp + cloudApiSecret;
+		String signature;
+		try {
+			java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+			byte[] digest = md.digest(toSign.getBytes());
+			StringBuilder sb = new StringBuilder();
+			for (byte b : digest)
+				sb.append(String.format("%02x", b));
+			signature = sb.toString();
+		} catch (Exception e) {
+			throw new RuntimeException("Failed to sign upload", e);
+		}
+
+		Map<String, Object> signedBody = Map.of("file", sourceUrl, "api_key", cloudApiKey, "timestamp", timestamp,
+				"signature", signature);
+
+		Map<String, Object> result = restClient.post().uri(uploadUrl).contentType(MediaType.APPLICATION_JSON)
+				.body(signedBody).retrieve().body(Map.class);
+
+		String url = (String) result.get("secure_url");
+		System.out.println("CLOUDINARY URL (signed): " + url);
+		return url;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -96,7 +138,6 @@ public class MediaService {
 						"""
 								You are an expert at writing prompts for AI image generation.
 								Given a social media post brief, create a detailed image prompt that would make a stunning, professional-quality social media image.
-
 								Rules:
 								- Describe the visual scene in detail: composition, lighting, colors, style
 								- Make it photorealistic or high-quality illustration style
@@ -123,10 +164,9 @@ public class MediaService {
 				List.of(Map.of("role", "system", "content", """
 						You are an expert at writing prompts for AI video generation.
 						Given a social media post brief, create a short video prompt.
-
 						Rules:
 						- Describe a simple, visually appealing 3-5 second scene
-						- Focus on one subject with gentle motion (steam rising, leaves falling, product rotating)
+						- Focus on one subject with gentle motion
 						- Keep it cinematic and professional
 						- Under 100 words
 						- Output ONLY the video prompt, nothing else
