@@ -42,9 +42,12 @@ public class OAuthController {
 
 		String state = user.getId().toString() + "|" + platform;
 
+		String scope = "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement,public_profile";
+
 		String url = "https://www.facebook.com/v21.0/dialog/oauth" + "?client_id=" + metaAppId + "&redirect_uri="
-				+ URLEncoder.encode(META_REDIRECT_URI, StandardCharsets.UTF_8) + "&config_id=1892512525246291"
-				+ "&state=" + URLEncoder.encode(state, StandardCharsets.UTF_8) + "&response_type=code";
+				+ URLEncoder.encode(META_REDIRECT_URI, StandardCharsets.UTF_8) + "&scope="
+				+ URLEncoder.encode(scope, StandardCharsets.UTF_8) + "&state="
+				+ URLEncoder.encode(state, StandardCharsets.UTF_8) + "&response_type=code";
 
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("url", url), "OK"));
 	}
