@@ -1,5 +1,11 @@
 package in.postkaro.service;
 
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import in.postkaro.entity.User;
 import in.postkaro.entity.UserProfile;
 import in.postkaro.enums.BusinessCategory;
@@ -8,10 +14,6 @@ import in.postkaro.enums.UserType;
 import in.postkaro.repository.UserProfileRepository;
 import in.postkaro.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -67,5 +69,12 @@ public class OnboardingService {
 		case "50+" -> TeamSize.LARGE;
 		default -> throw new IllegalArgumentException("Invalid team size: " + value);
 		};
+	}
+
+	@Transactional
+	public void completeOnboarding(UUID userId) {
+		User user = userRepository.findById(userId).orElseThrow();
+		user.setOnboardingComplete(true);
+		userRepository.save(user);
 	}
 }

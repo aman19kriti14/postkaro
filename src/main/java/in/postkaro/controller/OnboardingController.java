@@ -38,4 +38,10 @@ public class OnboardingController {
 		onboardingService.saveProfile(user, body);
 		return ResponseEntity.ok(ApiResponse.ok(null, "Profile saved."));
 	}
+
+	@PostMapping("/complete")
+	public ResponseEntity<ApiResponse<Void>> completeOnboarding(@AuthenticationPrincipal User user) {
+		onboardingService.completeOnboarding(user.getId());
+		return ResponseEntity.ok(ApiResponse.ok(null, "Onboarding complete."));
+	}
 }
