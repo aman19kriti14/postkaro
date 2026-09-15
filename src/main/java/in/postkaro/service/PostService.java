@@ -29,6 +29,7 @@ public class PostService {
 		if (data.get("channels") instanceof List) {
 		    post.setChannels(new HashSet<>((List<String>) data.get("channels")));
 		}
+		//
 
 		return postRepository.save(post);
 	}
