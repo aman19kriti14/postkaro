@@ -209,7 +209,18 @@ public class OAuthController {
 			connectedAccountRepository.save(account);
 			System.out.println("SAVED: " + platform + " account @" + displayName + " for user " + userId);
 		} else {
-			System.out.println("ALREADY EXISTS: " + platform + " for user " + userId);
+			ConnectedAccount account = connectedAccountRepository
+					.findByUserIdAndPlatformAndPlatformUserId(userUuid, platform, platformUserId)
+					.orElseThrow(() -> new RuntimeException("Connected account not found"));
+
+			account.setAccessToken(token);
+			account.setActive(true);
+			account.setPlatformUsername("@" + displayName);
+			account.setPlatformDisplayName(displayName);
+
+			connectedAccountRepository.save(account);
+
+			System.out.println("UPDATED: " + platform + " account @" + displayName + " for user " + userId);
 		}
 	}
 }

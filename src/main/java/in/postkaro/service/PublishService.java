@@ -26,7 +26,7 @@ public class PublishService {
 	private final ConnectedAccountRepository connectedAccountRepository;
 	private final RestClient restClient = RestClient.create();
 
-	private static final String GRAPH_API = "https://graph.facebook.com/v21.0";
+	private static final String GRAPH_API = "https://graph.instagram.com/v21.0";
 
 	@Transactional
 	public void publishPost(UUID postId, UUID userId) {
@@ -83,7 +83,7 @@ public class PublishService {
 		PostMedia image = post.getMedia().stream().filter(m -> "image".equals(m.getType())).findFirst().orElseThrow();
 
 		// Step 1: Create media container using URI.create to prevent double-encoding
-		String rawContainerUrl = "https://graph.facebook.com/v21.0/" + igUserId + "/media" + "?image_url="
+		String rawContainerUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media" + "?image_url="
 				+ image.getUrl() + "&caption="
 				+ java.net.URLEncoder.encode(post.getCaption(), java.nio.charset.StandardCharsets.UTF_8)
 				+ "&access_token=" + token;
@@ -97,7 +97,7 @@ public class PublishService {
 		System.out.println("IG CONTAINER ID: " + containerId);
 
 		// Step 2: Publish
-		String rawPublishUrl = "https://graph.facebook.com/v21.0/" + igUserId + "/media_publish" + "?creation_id="
+		String rawPublishUrl = "https://graph.instagram.com/v21.0/" + igUserId + "/media_publish" + "?creation_id="
 				+ containerId + "&access_token=" + token;
 
 		Map<String, Object> result = restClient.post().uri(java.net.URI.create(rawPublishUrl)).retrieve()
