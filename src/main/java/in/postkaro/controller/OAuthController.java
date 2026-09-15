@@ -39,18 +39,15 @@ public class OAuthController {
 	@GetMapping("/meta/url")
 	public ResponseEntity<ApiResponse<Map<String, String>>> getMetaOAuthUrl(@AuthenticationPrincipal User user,
 			@RequestParam(defaultValue = "instagram") String platform) {
-		String scope = "email";
 
 		String state = user.getId().toString() + "|" + platform;
 
 		String url = "https://www.facebook.com/v21.0/dialog/oauth" + "?client_id=" + metaAppId + "&redirect_uri="
-				+ URLEncoder.encode(metaRedirectUri, StandardCharsets.UTF_8) + "&scope="
-				+ URLEncoder.encode(scope, StandardCharsets.UTF_8) + "&state="
+				+ URLEncoder.encode(metaRedirectUri, StandardCharsets.UTF_8) + "&state="
 				+ URLEncoder.encode(state, StandardCharsets.UTF_8) + "&response_type=code";
 
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("url", url), "OK"));
 	}
-	//
 
 	/**
 	 * Meta redirects here after user authorizes. Exchanges code for token, fetches
