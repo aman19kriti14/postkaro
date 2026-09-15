@@ -105,17 +105,6 @@ public class PublishService {
 			throw new RuntimeException("Instagram access token is missing.");
 		}
 
-		System.out.println("========== INSTAGRAM DEBUG ==========");
-
-		System.out.println("Instagram User ID: " + igUserId);
-
-		System.out.println("Access Token Present: true");
-
-		System.out.println("=====================================");
-
-		/*
-		 * Instagram image publishing requires an image.
-		 */
 		boolean hasImage = post.getMedia() != null
 				&& post.getMedia().stream().anyMatch(m -> "image".equalsIgnoreCase(m.getType()));
 
@@ -132,80 +121,60 @@ public class PublishService {
 			throw new RuntimeException("Instagram image URL is missing.");
 		}
 
+		String caption = post.getCaption() != null ? post.getCaption() : "";
+
+		System.out.println("========== INSTAGRAM DEBUG ==========");
+		System.out.println("Instagram User ID: " + igUserId);
+		System.out.println("Access Token Present: true");
+		System.out.println("IG IMAGE URL: " + imageUrl);
+		System.out.println("=====================================");
+
 		/*
-		 * ========================================================= STEP 1 - CREATE
-		 * MEDIA CONTAINER =========================================================
-		 *
-		 * IMPORTANT: Use a MultiValueMap so Spring sends exactly:
-		 *
-		 * Content-Type: application/x-www-form-urlencoded
-		 *
-		 * This matches the curl request that successfully worked.
+		 * ============================================================ STEP 1: CREATE
+		 * MEDIA CONTAINER ============================================================
 		 */
 
-		MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-
-		form.add("image_url", imageUrl);
-		form.add("caption", post.getCaption() != null ? post.getCaption() : "");
-		form.add("access_token", token);
-
-		System.out.println("IG IMAGE URL: " + imageUrl);
+		String formBody = "image_url=" + URLEncoder.encode(imageUrl, StandardCharsets.UTF_8) + "&caption="
+				+ URLEncoder.encode(caption, StandardCharsets.UTF_8) + "&access_token="
+				+ URLEncoder.encode(token, StandardCharsets.UTF_8);
 
 		System.out.println("IG CREATE CONTAINER: " + INSTAGRAM_GRAPH_API + "/" + igUserId + "/media");
 
 		Map<String, Object> container = restClient.post().uri(INSTAGRAM_GRAPH_API + "/" + igUserId + "/media")
-				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(form).retrieve().body(Map.class);
-
-		if (container == null) {
-			throw new RuntimeException("Instagram returned an empty container response.");
-		}
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(formBody).retrieve().body(Map.class);
 
 		System.out.println("IG CONTAINER RESPONSE: " + container);
 
-		Object containerIdObject = container.get("id");
-
-		if (containerIdObject == null) {
+		if (container == null || container.get("id") == null) {
 			throw new RuntimeException("Instagram media container was not created. Response: " + container);
 		}
 
-		String containerId = String.valueOf(containerIdObject);
+		String containerId = String.valueOf(container.get("id"));
 
 		System.out.println("IG CONTAINER ID: " + containerId);
 
 		/*
-		 * ========================================================= STEP 2 - PUBLISH
-		 * MEDIA CONTAINER =========================================================
+		 * ============================================================ STEP 2: PUBLISH
+		 * CONTAINER ============================================================
 		 */
 
-		MultiValueMap<String, String> publishForm = new LinkedMultiValueMap<>();
-
-		publishForm.add("creation_id", containerId);
-
-		publishForm.add("access_token", token);
+		String publishBody = "creation_id=" + URLEncoder.encode(containerId, StandardCharsets.UTF_8) + "&access_token="
+				+ URLEncoder.encode(token, StandardCharsets.UTF_8);
 
 		System.out.println("IG PUBLISH CONTAINER: " + INSTAGRAM_GRAPH_API + "/" + igUserId + "/media_publish");
 
 		Map<String, Object> result = restClient.post().uri(INSTAGRAM_GRAPH_API + "/" + igUserId + "/media_publish")
-				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(publishForm).retrieve().body(Map.class);
-
-		if (result == null) {
-			throw new RuntimeException("Instagram returned an empty publish response.");
-		}
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(publishBody).retrieve().body(Map.class);
 
 		System.out.println("IG PUBLISH RESPONSE: " + result);
 
-		Object publishedId = result.get("id");
-
-		if (publishedId == null) {
+		if (result == null || result.get("id") == null) {
 			throw new RuntimeException("Instagram publishing failed. Response: " + result);
 		}
 
-		System.out.println("PUBLISHED to Instagram: " + publishedId);
+		System.out.println("PUBLISHED to Instagram: " + result.get("id"));
 	}
 
-	/**
-	 * Facebook publishing
-	 */
 	@SuppressWarnings("unchecked")
 	private void publishToFacebook(Post post, ConnectedAccount account) {
 
