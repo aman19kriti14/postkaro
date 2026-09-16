@@ -1,14 +1,16 @@
 package in.postkaro.repository;
 
-import in.postkaro.entity.Post;
-import in.postkaro.enums.PostStatus;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import in.postkaro.entity.Post;
+import in.postkaro.enums.PostStatus;
 
 public interface PostRepository extends JpaRepository<Post, UUID> {
 
@@ -18,4 +20,7 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 	List<Post> findByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, PostStatus status);
 
 	List<Post> findByUserIdOrderByCreatedAtDesc(UUID userId);
+
+	@EntityGraph(attributePaths = { "media" })
+	List<Post> findByUserIdAndStatus(UUID userId, PostStatus status);
 }
