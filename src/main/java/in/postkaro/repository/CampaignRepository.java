@@ -25,4 +25,6 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
 			""")
 	List<Campaign> findOverlapping(@Param("userId") UUID userId, @Param("from") LocalDate from,
 			@Param("to") LocalDate to);
+
+	long countByUserIdAndEndsOnGreaterThanEqual(UUID userId, LocalDate date);
 }
