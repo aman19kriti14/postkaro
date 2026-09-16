@@ -44,7 +44,8 @@ public class OAuthController {
 	private String igAppSecret;
 
 	private static final String CALLBACK_URI = "https://postkaro-production.up.railway.app/api/v1/oauth/callback";
-	private static final String FRONTEND_URL = "http://localhost:3000";
+	@Value("${app.frontend.url:http://localhost:3000}")
+	private String frontendUrl;
 	private static final String GRAPH_API_VERSION = "v21.0";
 
 	// ─── Get OAuth URL ───────────────────────────────────────────────
@@ -88,14 +89,14 @@ public class OAuthController {
 				handleFacebookCallback(code, userId);
 			}
 
-			String redirectUrl = FRONTEND_URL + "/connect-accounts?connected=" + platform;
+			String redirectUrl = frontendUrl + "/connect-accounts?connected=" + platform;
 			return ResponseEntity.status(HttpStatus.FOUND).header(HttpHeaders.LOCATION, redirectUrl).build();
 
 		} catch (Exception e) {
 			System.out.println("OAUTH CALLBACK ERROR: " + e.getMessage());
 			e.printStackTrace();
 			return ResponseEntity.status(HttpStatus.FOUND)
-					.header(HttpHeaders.LOCATION, FRONTEND_URL + "/connect-accounts?error=connection_failed").build();
+					.header(HttpHeaders.LOCATION, frontendUrl + "/connect-accounts?error=connection_failed").build();
 		}
 	}
 
