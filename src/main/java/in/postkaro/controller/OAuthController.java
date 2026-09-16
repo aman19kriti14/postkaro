@@ -58,7 +58,9 @@ public class OAuthController {
 		String url;
 
 		if ("instagram".equals(platform)) {
-			String scopes = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish";
+			// String scopes =
+			// "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish";
+			String scopes = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish,instagram_business_manage_insights";
 			url = "https://www.instagram.com/oauth/authorize" + "?client_id=" + igAppId + "&redirect_uri="
 					+ URLEncoder.encode(CALLBACK_URI, StandardCharsets.UTF_8) + "&state="
 					+ URLEncoder.encode(state, StandardCharsets.UTF_8) + "&scope=" + scopes + "&response_type=code";
