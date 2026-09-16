@@ -23,4 +23,10 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 
 	@EntityGraph(attributePaths = { "media" })
 	List<Post> findByUserIdAndStatus(UUID userId, PostStatus status);
+
+	@EntityGraph(attributePaths = { "media", "campaign" })
+	List<Post> findByUserIdAndCampaignIsNotNull(UUID userId);
+
+	@EntityGraph(attributePaths = { "media" })
+	List<Post> findByCampaignIdAndUserIdOrderByScheduledAtAsc(UUID campaignId, UUID userId);
 }
