@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import in.postkaro.dto.response.ApiResponse;
 import in.postkaro.entity.Post;
@@ -155,8 +157,12 @@ public class PostController {
 	}
 
 	@PostMapping("/{id}/publish")
-	public ResponseEntity<ApiResponse<Void>> publishPost(@AuthenticationPrincipal User user, @PathVariable UUID id) {
-		publishService.publishPost(id, user.getId());
-		return ResponseEntity.ok(ApiResponse.ok(null, "Post published."));
+	public ResponseEntity<ApiResponse<Map<String, Object>>> publishPost(@AuthenticationPrincipal User user,
+			@PathVariable UUID id) {
+		PublishService.PublishResult result = publishService.publishPost(id, user.getId());
+		if (!result.success()) {
+			throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, result.error());
+		}
+		return ResponseEntity.ok(ApiResponse.ok(Map.of("published", result.published()), "Post published."));
 	}
 }

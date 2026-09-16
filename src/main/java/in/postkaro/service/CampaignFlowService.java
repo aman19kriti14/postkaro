@@ -191,7 +191,6 @@ public class CampaignFlowService {
 	}
 
 	// ---------- step 3: checks ----------
-
 	@Transactional(readOnly = true)
 	public Checks checks(UUID userId, UUID id, Set<String> connectedPlatforms) {
 		Campaign c = owned(userId, id);
@@ -200,6 +199,10 @@ public class CampaignFlowService {
 		int total = posts.size();
 
 		long withVisual = approved.stream().filter(p -> !p.getMedia().isEmpty()).count();
+
+		// Instagram rejects posts without an image or video
+		long igWithoutMedia = approved.stream()
+				.filter(p -> p.getChannels().contains("instagram") && p.getMedia().isEmpty()).count();
 
 		Set<String> missing = new HashSet<>();
 		approved.forEach(p -> p.getChannels().forEach(ch -> {
@@ -221,7 +224,13 @@ public class CampaignFlowService {
 						"Unapproved posts stay as drafts and will not publish."),
 				new Check("visuals", true, // informational, never blocks
 						withVisual + " of " + approved.size() + " visuals ready",
-						"Posts without a visual publish as text only."),
+						"Posts without a visual go out as text where the channel allows it."),
+				new Check("instagram_media", igWithoutMedia == 0, igWithoutMedia == 0
+						? "Every Instagram post has a visual"
+						: igWithoutMedia + (igWithoutMedia == 1 ? " Instagram post needs" : " Instagram posts need")
+								+ " a visual",
+						igWithoutMedia == 0 ? "Instagram only accepts posts with an image or video."
+								: "Go back to review and generate a visual for each one."),
 				new Check("channels", missing.isEmpty(),
 						missing.isEmpty() ? channelCount + " channels connected"
 								: "Reconnect " + String.join(", ", missing),

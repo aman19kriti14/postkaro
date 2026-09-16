@@ -1,5 +1,6 @@
 package in.postkaro.service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -18,24 +19,36 @@ import lombok.extern.slf4j.Slf4j;
 public class PostPublishScheduler {
 
 	private final PostRepository postRepository;
+	private final PublishService publishService;
 	private final TransactionTemplate tx;
-	// private final PostPublishService publishService; ← wired in once I see your
-	// publish code
 
 	@Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
 	public void publishDuePosts() {
-		for (UUID id : postRepository.findDueIds(Instant.now())) {
-			Integer claimed = tx.execute(s -> postRepository.claim(id));
+		Instant now = Instant.now();
+
+		Integer stuck = tx.execute(s -> postRepository.failStuck(now.minus(Duration.ofMinutes(15))));
+		if (stuck != null && stuck > 0) {
+			log.warn("Marked {} stuck posts as failed", stuck);
+		}
+
+		for (UUID id : postRepository.findDueIds(now)) {
+			Integer claimed = tx.execute(s -> postRepository.claim(id, Instant.now()));
 			if (claimed == null || claimed == 0)
-				continue; // already taken
+				continue; // someone else took it
 
 			try {
-				log.info("Publishing scheduled post {}", id);
-				// publishService.publish(id); ← must set PUBLISHED + publishedAt on success
+				PublishService.PublishResult result = publishService.publishClaimed(id);
+				if (result.success()) {
+					log.info("Scheduled post {} published to {}", id, result.published());
+				} else {
+					log.warn("Scheduled post {} failed: {}", id, result.error());
+				}
 			} catch (Exception e) {
-				log.error("Scheduled publish failed for post {}", id, e);
-				tx.executeWithoutResult(
-						s -> postRepository.findById(id).ifPresent(p -> p.setStatus(PostStatus.FAILED)));
+				log.error("Scheduled publish crashed for post {}", id, e);
+				tx.executeWithoutResult(s -> postRepository.findById(id).ifPresent(p -> {
+					p.setStatus(PostStatus.FAILED);
+					p.setPublishError("Something went wrong. Try again.");
+				}));
 			}
 		}
 	}

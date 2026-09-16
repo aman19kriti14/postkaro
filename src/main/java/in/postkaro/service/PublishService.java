@@ -3,16 +3,21 @@ package in.postkaro.service;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import in.postkaro.entity.ConnectedAccount;
 import in.postkaro.entity.Post;
@@ -22,248 +27,291 @@ import in.postkaro.enums.SocialPlatform;
 import in.postkaro.repository.ConnectedAccountRepository;
 import in.postkaro.repository.PostRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PublishService {
 
+	private static final String INSTAGRAM_API = "https://graph.instagram.com/v21.0";
+	private static final String FACEBOOK_API = "https://graph.facebook.com/v21.0";
+	private static final String MEDIA_PROXY = "https://postkaro-production.up.railway.app/api/v1/media/";
+
 	private final PostRepository postRepository;
 	private final ConnectedAccountRepository connectedAccountRepository;
+	private final TransactionTemplate tx;
+	private final MetricSyncService metricSyncService; // NEW
 
-	private final RestClient restClient = RestClient.create();
+	private final RestClient http = RestClient.create();
+	private final ObjectMapper json = new ObjectMapper();
 
-	private static final String INSTAGRAM_GRAPH_API = "https://graph.instagram.com/v21.0";
+	public record PublishResult(boolean success, List<String> published, String error) {
+	}
 
-	private static final String FACEBOOK_GRAPH_API = "https://graph.facebook.com/v21.0";
-
-	@Transactional
-	public void publishPost(UUID postId, UUID userId) {
-
-		Post post = postRepository.findByIdAndUserId(postId, userId)
-				.orElseThrow(() -> new RuntimeException("Post not found"));
-
-		post.setStatus(PostStatus.PUBLISHING);
-		postRepository.save(post);
-
-		try {
-
-			for (String channel : post.getChannels()) {
-
-				SocialPlatform platform = SocialPlatform.valueOf(channel.toUpperCase());
-
-				List<ConnectedAccount> accounts = connectedAccountRepository.findByUserIdAndPlatform(userId, platform);
-
-				if (accounts.isEmpty()) {
-					throw new RuntimeException("No connected account found for " + platform);
-				}
-
-				ConnectedAccount account = accounts.get(0);
-
-				if (platform == SocialPlatform.INSTAGRAM) {
-
-					publishToInstagram(post, account);
-
-				} else if (platform == SocialPlatform.FACEBOOK) {
-
-					publishToFacebook(post, account);
-				}
-			}
-
-			post.setStatus(PostStatus.PUBLISHED);
-			post.setPublishedAt(Instant.now());
-
-		} catch (Exception e) {
-
-			post.setStatus(PostStatus.FAILED);
-
-			System.out.println("PUBLISH FAILED: " + e.getMessage());
-
-			e.printStackTrace();
+	/** A failure with a message that's safe to show the user. */
+	public static class PublishException extends RuntimeException {
+		public PublishException(String message) {
+			super(message);
 		}
+	}
 
-		postRepository.save(post);
+	// ---------- entry points ----------
+
+	/** "Publish now" from the app. */
+	public PublishResult publishPost(UUID postId, UUID userId) {
+		Integer claimed = tx.execute(s -> postRepository.claimForPublish(postId, userId, Instant.now()));
+		if (claimed == null || claimed == 0) {
+			Post post = postRepository.findByIdAndUserId(postId, userId)
+					.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found"));
+			String reason = switch (post.getStatus()) {
+			case PUBLISHED -> "This post is already published";
+			case PUBLISHING -> "This post is already being published";
+			default -> "This post can't be published right now";
+			};
+			throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
+		}
+		return publishClaimed(postId);
 	}
 
 	/**
-	 * Instagram publishing
-	 *
-	 * Flow:
-	 *
-	 * 1. Create media container 2. Publish media container
+	 * Publishes a post that's already been marked PUBLISHING (used by the scheduler
+	 * too).
 	 */
-	@SuppressWarnings("unchecked")
-	private void publishToInstagram(Post post, ConnectedAccount account) {
-
-		String igUserId = account.getPlatformUserId();
-		String token = account.getAccessToken();
-
-		if (igUserId == null || igUserId.isBlank()) {
-			throw new RuntimeException("Instagram User ID is missing.");
+	public PublishResult publishClaimed(UUID postId) {
+		Post post = tx.execute(s -> postRepository.findForPublish(postId).orElse(null));
+		if (post == null) {
+			return new PublishResult(false, List.of(), "Post not found");
 		}
 
-		if (token == null || token.isBlank()) {
-			throw new RuntimeException("Instagram access token is missing.");
-		}
+		UUID userId = post.getUser().getId();
+		List<String> done = new ArrayList<>(post.getPublishedChannels());
+		List<String> errors = new ArrayList<>();
 
-		boolean hasImage = post.getMedia() != null
-				&& post.getMedia().stream().anyMatch(m -> "image".equalsIgnoreCase(m.getType()));
-
-		if (!hasImage) {
-			throw new RuntimeException("Instagram requires an image.");
-		}
-
-		PostMedia image = post.getMedia().stream().filter(m -> "image".equalsIgnoreCase(m.getType())).findFirst()
-				.orElseThrow(() -> new RuntimeException("Instagram image not found."));
-
-		String imageUrl = "https://postkaro-production.up.railway.app/api/v1/media/" + image.getId();
-
-		System.out.println("IG IMAGE URL: " + imageUrl);
-
-		if (imageUrl == null || imageUrl.isBlank()) {
-			throw new RuntimeException("Instagram image URL is missing.");
-		}
-
-		String caption = post.getCaption() != null ? post.getCaption() : "";
-
-		System.out.println("========== INSTAGRAM DEBUG ==========");
-		System.out.println("Instagram User ID: " + igUserId);
-		System.out.println("Access Token Present: true");
-		System.out.println("IG IMAGE URL: " + imageUrl);
-		System.out.println("=====================================");
-
-		/*
-		 * ============================================================ STEP 1: CREATE
-		 * MEDIA CONTAINER ============================================================
-		 */
-
-		String formBody = "image_url=" + URLEncoder.encode(imageUrl, StandardCharsets.UTF_8) + "&caption="
-				+ URLEncoder.encode(caption, StandardCharsets.UTF_8) + "&access_token="
-				+ URLEncoder.encode(token, StandardCharsets.UTF_8);
-
-		System.out.println("IG CREATE CONTAINER: " + INSTAGRAM_GRAPH_API + "/" + igUserId + "/media");
-
-		Map<String, Object> container = restClient.post().uri(INSTAGRAM_GRAPH_API + "/" + igUserId + "/media")
-				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(formBody).retrieve().body(Map.class);
-
-		System.out.println("IG CONTAINER RESPONSE: " + container);
-
-		if (container == null || container.get("id") == null) {
-			throw new RuntimeException("Instagram media container was not created. Response: " + container);
-		}
-
-		String containerId = String.valueOf(container.get("id"));
-
-		System.out.println("IG CONTAINER ID: " + containerId);
-
-		waitForInstagramMediaReady(containerId, token);
-
-		/*
-		 * ============================================================ STEP 2: PUBLISH
-		 * CONTAINER ============================================================
-		 */
-
-		String publishBody = "creation_id=" + URLEncoder.encode(containerId, StandardCharsets.UTF_8) + "&access_token="
-				+ URLEncoder.encode(token, StandardCharsets.UTF_8);
-
-		System.out.println("IG PUBLISH CONTAINER: " + INSTAGRAM_GRAPH_API + "/" + igUserId + "/media_publish");
-
-		Map<String, Object> result = restClient.post().uri(INSTAGRAM_GRAPH_API + "/" + igUserId + "/media_publish")
-				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(publishBody).retrieve().body(Map.class);
-
-		System.out.println("IG PUBLISH RESPONSE: " + result);
-
-		if (result == null || result.get("id") == null) {
-			throw new RuntimeException("Instagram publishing failed. Response: " + result);
-		}
-
-		System.out.println("PUBLISHED to Instagram: " + result.get("id"));
-	}
-
-	private String getInstagramImageUrl(String imageUrl) {
-		if (imageUrl == null || imageUrl.isBlank()) {
-			throw new RuntimeException("Image URL is missing.");
-		}
-
-		if (imageUrl.contains("/image/upload/")) {
-			return imageUrl.replace("/image/upload/", "/image/upload/f_jpg,q_auto/");
-		}
-
-		return imageUrl;
-	}
-
-	@SuppressWarnings("unchecked")
-	private void publishToFacebook(Post post, ConnectedAccount account) {
-
-		String pageId = account.getPlatformUserId();
-		String token = account.getAccessToken();
-
-		boolean hasImage = post.getMedia() != null
-				&& post.getMedia().stream().anyMatch(m -> "image".equalsIgnoreCase(m.getType()));
-
-		if (hasImage) {
-
-			PostMedia image = post.getMedia().stream().filter(m -> "image".equalsIgnoreCase(m.getType())).findFirst()
-					.orElseThrow();
-
-			restClient.post()
-					.uri(FACEBOOK_GRAPH_API + "/" + pageId + "/photos" + "?url="
-							+ URLEncoder.encode(image.getUrl(), StandardCharsets.UTF_8) + "&message="
-							+ URLEncoder.encode(post.getCaption() != null ? post.getCaption() : "",
-									StandardCharsets.UTF_8)
-							+ "&access_token=" + URLEncoder.encode(token, StandardCharsets.UTF_8))
-					.retrieve().body(Map.class);
-
-		} else {
-
-			restClient.post()
-					.uri(FACEBOOK_GRAPH_API + "/" + pageId + "/feed" + "?message="
-							+ URLEncoder.encode(post.getCaption() != null ? post.getCaption() : "",
-									StandardCharsets.UTF_8)
-							+ "&access_token=" + URLEncoder.encode(token, StandardCharsets.UTF_8))
-					.retrieve().body(Map.class);
-		}
-
-		System.out.println("PUBLISHED to Facebook page: " + pageId);
-	}
-
-	private void waitForInstagramMediaReady(String containerId, String token) {
-
-		for (int attempt = 1; attempt <= 10; attempt++) {
+		for (String channel : post.getChannels().stream().sorted().toList()) {
+			if (done.contains(channel))
+				continue; // sent on an earlier attempt
 
 			try {
-				Thread.sleep(2000);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				throw new RuntimeException("Interrupted while waiting for Instagram media.", e);
-			}
+				String externalId = publishTo(channel, post, userId); // CHANGED: returns id
+				done.add(channel);
+				tx.executeWithoutResult(s -> postRepository.findForPublish(postId)
+						.ifPresent(p -> p.getPublishedChannels().add(channel)));
 
-			System.out.println("Checking Instagram media status. Attempt: " + attempt);
-
-			Map<String, Object> status = restClient.get()
-					.uri(uriBuilder -> uriBuilder.scheme("https").host("graph.instagram.com")
-							.path("/v21.0/" + containerId).queryParam("fields", "status_code,status")
-							.queryParam("access_token", token).build())
-					.retrieve().body(Map.class);
-
-			System.out.println("IG MEDIA STATUS: " + status);
-
-			if (status == null) {
-				continue;
-			}
-
-			String statusCode = String.valueOf(status.get("status_code"));
-
-			if ("FINISHED".equalsIgnoreCase(statusCode)) {
-				System.out.println("Instagram media is READY.");
-				return;
-			}
-
-			if ("ERROR".equalsIgnoreCase(statusCode) || "EXPIRED".equalsIgnoreCase(statusCode)) {
-
-				throw new RuntimeException("Instagram media processing failed: " + status);
+				// NEW: record for insights. Never let this fail the publish,
+				// otherwise a retry would post the same content twice.
+				try {
+					metricSyncService.recordPublished(postId, userId, channel, externalId);
+				} catch (Exception me) {
+					log.warn("Couldn't record metrics for post {} on {}: {}", postId, channel, me.getMessage());
+				}
+			} catch (Exception e) {
+				String message = friendly(e);
+				log.warn("Publish to {} failed for post {}: {}", channel, postId, e.getMessage());
+				errors.add(label(channel) + ": " + message);
 			}
 		}
 
-		throw new RuntimeException("Instagram media was not ready after waiting.");
+		boolean success = errors.isEmpty();
+		String error = success ? null : limit(String.join(" · ", errors), 300);
+
+		tx.executeWithoutResult(s -> postRepository.findById(postId).ifPresent(p -> {
+			if (success) {
+				p.setStatus(PostStatus.PUBLISHED);
+				p.setPublishedAt(Instant.now());
+				p.setPublishError(null);
+			} else {
+				p.setStatus(PostStatus.FAILED);
+				p.setPublishError(error);
+			}
+		}));
+
+		return new PublishResult(success, done, error);
+	}
+
+	// ---------- routing ----------
+
+	/** Returns the platform's id for the published post. */
+	private String publishTo(String channel, Post post, UUID userId) { // CHANGED: void -> String
+		SocialPlatform platform = platformOf(channel);
+
+		ConnectedAccount account = connectedAccountRepository.findByUserIdAndPlatform(userId, platform).stream()
+				.filter(ConnectedAccount::isActive).findFirst()
+				.orElseThrow(() -> new PublishException(label(channel) + " isn't connected"));
+
+		if (account.getAccessToken() == null || account.getAccessToken().isBlank()) {
+			throw new PublishException("Reconnect " + label(channel));
+		}
+		if (account.getAccessTokenExpiresAt() != null && account.getAccessTokenExpiresAt().isBefore(Instant.now())) {
+			throw new PublishException("Your " + label(channel) + " connection expired. Reconnect it.");
+		}
+
+		return switch (platform) {
+		case INSTAGRAM -> publishToInstagram(post, account);
+		case FACEBOOK -> publishToFacebook(post, account);
+		default -> throw new PublishException("Publishing to " + label(channel) + " isn't available yet");
+		};
+	}
+
+	private static SocialPlatform platformOf(String channel) {
+		String c = channel.trim().toLowerCase();
+		if (c.equals("x") || c.equals("twitter"))
+			return SocialPlatform.TWITTER;
+		try {
+			return SocialPlatform.valueOf(c.toUpperCase());
+		} catch (IllegalArgumentException e) {
+			throw new PublishException("Unknown channel " + channel);
+		}
+	}
+
+	// ---------- Instagram ----------
+
+	@SuppressWarnings("unchecked")
+	private String publishToInstagram(Post post, ConnectedAccount account) { // CHANGED: returns id
+		String igUserId = account.getPlatformUserId();
+		String token = account.getAccessToken();
+		if (igUserId == null || igUserId.isBlank()) {
+			throw new PublishException("Reconnect Instagram");
+		}
+
+		PostMedia media = post.getMedia().stream().findFirst()
+				.orElseThrow(() -> new PublishException("Instagram needs an image or video"));
+		boolean video = "video".equalsIgnoreCase(media.getType());
+
+		String caption = post.getCaption() == null ? "" : post.getCaption();
+
+		// Step 1: create the media container
+		String body = video
+				? form("media_type", "REELS", "video_url", media.getUrl(), "caption", caption, "access_token", token)
+				: form("image_url", MEDIA_PROXY + media.getId(), "caption", caption, "access_token", token);
+
+		Map<String, Object> container = http.post().uri(INSTAGRAM_API + "/" + igUserId + "/media")
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(body).retrieve().body(Map.class);
+
+		if (container == null || container.get("id") == null) {
+			throw new PublishException("Instagram didn't accept the media");
+		}
+		String containerId = String.valueOf(container.get("id"));
+
+		// Videos take longer to process
+		waitForInstagram(containerId, token, video ? 40 : 10, video ? 3000 : 2000);
+
+		// Step 2: publish it
+		Map<String, Object> result = http.post().uri(INSTAGRAM_API + "/" + igUserId + "/media_publish")
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED)
+				.body(form("creation_id", containerId, "access_token", token)).retrieve().body(Map.class);
+
+		if (result == null || result.get("id") == null) {
+			throw new PublishException("Instagram didn't publish the post");
+		}
+		String mediaId = String.valueOf(result.get("id"));
+		log.info("Published post {} to Instagram as {}", post.getId(), mediaId);
+		return mediaId; // NEW
+	}
+
+	@SuppressWarnings("unchecked")
+	private void waitForInstagram(String containerId, String token, int attempts, long delayMs) {
+		for (int i = 0; i < attempts; i++) {
+			sleep(delayMs);
+
+			Map<String, Object> status = http.get()
+					.uri(b -> b.scheme("https").host("graph.instagram.com").path("/v21.0/" + containerId)
+							.queryParam("fields", "status_code").queryParam("access_token", token).build())
+					.retrieve().body(Map.class);
+
+			String code = status == null ? "" : String.valueOf(status.get("status_code"));
+			if ("FINISHED".equalsIgnoreCase(code))
+				return;
+			if ("ERROR".equalsIgnoreCase(code) || "EXPIRED".equalsIgnoreCase(code)) {
+				throw new PublishException("Instagram couldn't process the media");
+			}
+		}
+		throw new PublishException("Instagram took too long to process the media. Try again.");
+	}
+
+	// ---------- Facebook ----------
+
+	@SuppressWarnings("unchecked")
+	private String publishToFacebook(Post post, ConnectedAccount account) { // CHANGED: returns id
+		String pageId = account.getPlatformUserId();
+		String token = account.getAccessToken();
+		String caption = post.getCaption() == null ? "" : post.getCaption();
+
+		PostMedia image = post.getMedia().stream().filter(m -> "image".equalsIgnoreCase(m.getType())).findFirst()
+				.orElse(null);
+
+		// Token goes in the body, not the URL, so it never lands in access logs
+		String path = image != null ? "/photos" : "/feed";
+		String body = image != null ? form("url", image.getUrl(), "message", caption, "access_token", token)
+				: form("message", caption, "access_token", token);
+
+		Map<String, Object> result = http.post().uri(FACEBOOK_API + "/" + pageId + path)
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(body).retrieve().body(Map.class);
+
+		if (result == null || result.get("id") == null) {
+			throw new PublishException("Facebook didn't publish the post");
+		}
+		String fbId = String.valueOf(result.get("id"));
+		log.info("Published post {} to Facebook as {}", post.getId(), fbId);
+		return fbId; // NEW
+	}
+
+	// ---------- helpers ----------
+
+	private String friendly(Exception e) {
+		if (e instanceof PublishException)
+			return e.getMessage();
+		if (e instanceof RestClientResponseException r) {
+			try {
+				JsonNode err = json.readTree(r.getResponseBodyAsString()).path("error");
+				int code = err.path("code").asInt();
+				if (code == 190)
+					return "Connection expired. Reconnect this account.";
+				String message = err.path("message").asText("");
+				if (!message.isBlank())
+					return limit(message, 150);
+			} catch (Exception ignored) {
+				// fall through
+			}
+			return "The platform rejected the post (" + r.getStatusCode().value() + ")";
+		}
+		return "Something went wrong. Try again.";
+	}
+
+	private static String form(String... pairs) {
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i + 1 < pairs.length; i += 2) {
+			if (sb.length() > 0)
+				sb.append('&');
+			sb.append(pairs[i]).append('=')
+					.append(URLEncoder.encode(pairs[i + 1] == null ? "" : pairs[i + 1], StandardCharsets.UTF_8));
+		}
+		return sb.toString();
+	}
+
+	private static String label(String channel) {
+		return switch (channel.toLowerCase()) {
+		case "instagram" -> "Instagram";
+		case "facebook" -> "Facebook";
+		case "linkedin" -> "LinkedIn";
+		case "youtube" -> "YouTube";
+		case "x", "twitter" -> "X";
+		case "whatsapp" -> "WhatsApp";
+		case "threads" -> "Threads";
+		default -> channel;
+		};
+	}
+
+	private static String limit(String s, int max) {
+		return s.length() <= max ? s : s.substring(0, max - 1) + "…";
+	}
+
+	private static void sleep(long ms) {
+		try {
+			Thread.sleep(ms);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new PublishException("Publishing was interrupted");
+		}
 	}
 }

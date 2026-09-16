@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -93,4 +94,76 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 			where p.id = :id and p.status = in.postkaro.enums.PostStatus.SCHEDULED
 			""")
 	int claim(@Param("id") UUID id);
+
+	// Everything publishing needs, in one query
+	@Query("""
+			select distinct p from Post p
+			left join fetch p.media
+			left join fetch p.channels
+			left join fetch p.publishedChannels
+			where p.id = :id
+			""")
+	Optional<Post> findForPublish(@Param("id") UUID id);
+
+	// Scheduler: take a due post only if it's still SCHEDULED
+	@Modifying
+	@Query("""
+			update Post p set p.status = in.postkaro.enums.PostStatus.PUBLISHING, p.updatedAt = :now
+			where p.id = :id and p.status = in.postkaro.enums.PostStatus.SCHEDULED
+			""")
+	int claim(@Param("id") UUID id, @Param("now") Instant now);
+
+	// Publish now: take the post if it isn't already out or in progress
+	@Modifying
+	@Query("""
+			update Post p set p.status = in.postkaro.enums.PostStatus.PUBLISHING, p.updatedAt = :now
+			where p.id = :id and p.user.id = :userId
+			  and p.status in (in.postkaro.enums.PostStatus.DRAFT,
+			                   in.postkaro.enums.PostStatus.SCHEDULED,
+			                   in.postkaro.enums.PostStatus.FAILED)
+			""")
+	int claimForPublish(@Param("id") UUID id, @Param("userId") UUID userId, @Param("now") Instant now);
+
+	// Posts stuck in PUBLISHING (e.g. the server restarted mid-publish)
+	@Modifying
+	@Query("""
+			update Post p set p.status = in.postkaro.enums.PostStatus.FAILED,
+			                  p.publishError = 'Publishing timed out. Try again.'
+			where p.status = in.postkaro.enums.PostStatus.PUBLISHING and p.updatedAt < :cutoff
+			""")
+	int failStuck(@Param("cutoff") Instant cutoff);
+	// ---------- dashboard ----------
+
+	// "Scheduled · next 7 days" card (drafts inside unfinished campaigns don't
+	// count)
+	@Query("""
+			select count(p) from Post p
+			where p.user.id = :userId
+			  and p.status in (in.postkaro.enums.PostStatus.SCHEDULED, in.postkaro.enums.PostStatus.NEEDS_REVIEW)
+			  and (p.campaign is null or p.campaign.status <> in.postkaro.enums.CampaignStatus.DRAFT)
+			  and p.scheduledAt >= :from and p.scheduledAt < :to
+			""")
+	long dashCountUpcoming(@Param("userId") UUID userId, @Param("from") Instant from, @Param("to") Instant to);
+
+	// "Published" card, this month vs last month
+	@Query("""
+			select count(p) from Post p
+			where p.user.id = :userId
+			  and p.status = in.postkaro.enums.PostStatus.PUBLISHED
+			  and p.publishedAt >= :from and p.publishedAt < :to
+			""")
+	long dashCountPublished(@Param("userId") UUID userId, @Param("from") Instant from, @Param("to") Instant to);
+
+	// "Up next" list: anything with a future time that isn't out yet
+	@Query("""
+			select p from Post p
+			where p.user.id = :userId
+			  and p.status in (in.postkaro.enums.PostStatus.SCHEDULED,
+			                   in.postkaro.enums.PostStatus.NEEDS_REVIEW,
+			                   in.postkaro.enums.PostStatus.DRAFT)
+			  and (p.campaign is null or p.campaign.status <> in.postkaro.enums.CampaignStatus.DRAFT)
+			  and p.scheduledAt >= :now
+			order by p.scheduledAt asc
+			""")
+	List<Post> dashUpNext(@Param("userId") UUID userId, @Param("now") Instant now, Pageable page);
 }

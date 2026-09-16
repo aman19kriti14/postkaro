@@ -98,5 +98,14 @@ public class Post {
 
 	@Column(nullable = false)
 	@Builder.Default
-	private boolean approved = false; // campaign review approval
+	private boolean approved = false;
+
+	@ElementCollection
+	@CollectionTable(name = "post_published_channels", joinColumns = @JoinColumn(name = "post_id"))
+	@Column(name = "channel", length = 30)
+	@Builder.Default
+	private Set<String> publishedChannels = new HashSet<>(); // channels already sent; retries skip these
+
+	@Column(length = 300)
+	private String publishError; // last failure reason, shown to the user// campaign review approval
 }
