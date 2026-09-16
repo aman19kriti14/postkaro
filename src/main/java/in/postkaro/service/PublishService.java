@@ -115,7 +115,7 @@ public class PublishService {
 		PostMedia image = post.getMedia().stream().filter(m -> "image".equalsIgnoreCase(m.getType())).findFirst()
 				.orElseThrow(() -> new RuntimeException("Instagram image not found."));
 
-		String imageUrl = getInstagramImageUrl(image.getUrl());
+		String imageUrl = "https://postkaro-production.up.railway.app/api/v1/media/" + image.getId();
 
 		System.out.println("IG IMAGE URL: " + imageUrl);
 
