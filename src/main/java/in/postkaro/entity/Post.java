@@ -77,6 +77,16 @@ public class Post {
 
 	private Instant publishedAt;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "campaign_id")
+	private Campaign campaign;
+
+	@Column(length = 20)
+	private String format; // reel, carousel, post, story
+
+	@Column(length = 20)
+	private String stage; // tease, explain, proof, convert
+
 	@CreationTimestamp
 	private Instant createdAt;
 
