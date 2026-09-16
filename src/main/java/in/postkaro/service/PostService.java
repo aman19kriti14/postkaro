@@ -53,7 +53,11 @@ public class PostService {
 	@Transactional
 	public Post updatePost(UUID postId, UUID userId, Map<String, Object> data) {
 		Post post = postRepository.findByIdAndUserId(postId, userId)
-				.orElseThrow(() -> new RuntimeException("Post not found"));
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found"));
+
+		if (post.getStatus() != PostStatus.DRAFT) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "Only drafts can be edited");
+		}
 
 		if (data.containsKey("caption"))
 			post.setCaption((String) data.get("caption"));
@@ -63,6 +67,19 @@ public class PostService {
 			post.setTone((String) data.get("tone"));
 		if (data.get("channels") instanceof List)
 			post.setChannels(new HashSet<>((List<String>) data.get("channels")));
+
+		// Media: replace whatever was there with what the page sends
+		if (data.containsKey("mediaUrl")) {
+			String mediaUrl = (String) data.get("mediaUrl");
+			String mediaType = (String) data.get("mediaType");
+
+			post.getMedia().clear();
+			if (mediaUrl != null && !mediaUrl.isBlank()) {
+				post.getMedia().add(PostMedia.builder().post(post).type(mediaType != null ? mediaType : "image")
+						.url(mediaUrl).dimensions("1024x1024").sortOrder(0).build());
+			}
+		}
+
 		return postRepository.save(post);
 	}
 
