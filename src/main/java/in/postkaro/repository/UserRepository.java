@@ -15,4 +15,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.connectedAccounts WHERE u.id = :id")
     Optional<User> findByIdWithAccounts(@Param("id") UUID id);
+    
+
 }
