@@ -36,11 +36,13 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 	List<Post> findByCampaignIdAndUserIdOrderByScheduledAtAsc(UUID campaignId, UUID userId);
 
 	// Posts from unfinished campaigns stay off the calendar
+	// Posts from unfinished campaigns stay off the calendar
 	@EntityGraph(attributePaths = { "media", "campaign", "channels" })
 	@Query("""
 			select distinct p from Post p
+			left join p.campaign c
 			where p.user.id = :userId
-			  and (p.campaign is null or p.campaign.status <> in.postkaro.enums.CampaignStatus.DRAFT)
+			  and (c is null or c.status <> in.postkaro.enums.CampaignStatus.DRAFT)
 			  and (
 			        (p.status = in.postkaro.enums.PostStatus.PUBLISHED
 			            and p.publishedAt >= :from and p.publishedAt < :to)
@@ -58,10 +60,12 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 	void deleteByCampaignId(UUID campaignId);
 
 	// Something else already going out within the window (for the clash check)
+	// Something else already going out within the window (for the clash check)
 	@Query("""
 			select count(p) > 0 from Post p
+			left join p.campaign c
 			where p.user.id = :userId
-			  and (p.campaign is null or p.campaign.id <> :campaignId)
+			  and (c is null or c.id <> :campaignId)
 			  and p.status in (in.postkaro.enums.PostStatus.SCHEDULED, in.postkaro.enums.PostStatus.NEEDS_REVIEW)
 			  and p.scheduledAt > :from and p.scheduledAt < :to
 			""")
@@ -77,11 +81,13 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 	List<Object[]> countByCampaignAndStatus(@Param("userId") UUID userId);
 
 	// Due posts; campaign posts only if auto-publish is on
+	// Due posts; campaign posts only if auto-publish is on
 	@Query("""
 			select p.id from Post p
+			left join p.campaign c
 			where p.status = in.postkaro.enums.PostStatus.SCHEDULED
 			  and p.scheduledAt <= :now
-			  and (p.campaign is null or p.campaign.autoPublish = true)
+			  and (c is null or c.autoPublish = true)
 			order by p.scheduledAt
 			""")
 	List<UUID> findDueIds(@Param("now") Instant now);
@@ -138,9 +144,10 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 	// count)
 	@Query("""
 			select count(p) from Post p
+			left join p.campaign c
 			where p.user.id = :userId
 			  and p.status in (in.postkaro.enums.PostStatus.SCHEDULED, in.postkaro.enums.PostStatus.NEEDS_REVIEW)
-			  and (p.campaign is null or p.campaign.status <> in.postkaro.enums.CampaignStatus.DRAFT)
+			  and (c is null or c.status <> in.postkaro.enums.CampaignStatus.DRAFT)
 			  and p.scheduledAt >= :from and p.scheduledAt < :to
 			""")
 	long dashCountUpcoming(@Param("userId") UUID userId, @Param("from") Instant from, @Param("to") Instant to);
@@ -157,11 +164,12 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 	// "Up next" list: anything with a future time that isn't out yet
 	@Query("""
 			select p from Post p
+			left join p.campaign c
 			where p.user.id = :userId
 			  and p.status in (in.postkaro.enums.PostStatus.SCHEDULED,
 			                   in.postkaro.enums.PostStatus.NEEDS_REVIEW,
 			                   in.postkaro.enums.PostStatus.DRAFT)
-			  and (p.campaign is null or p.campaign.status <> in.postkaro.enums.CampaignStatus.DRAFT)
+			  and (c is null or c.status <> in.postkaro.enums.CampaignStatus.DRAFT)
 			  and p.scheduledAt >= :now
 			order by p.scheduledAt asc
 			""")
