@@ -73,4 +73,16 @@ public interface PostMetricRepository extends JpaRepository<PostMetric, UUID> {
 			""")
 	List<PostMetric> topByEngagement(@Param("userId") UUID userId, @Param("from") Instant from,
 			@Param("minReach") long minReach, Pageable page);
+
+	// AI studio insights: [format, publishedAt, reach, likes, comments, shares,
+	// saves]
+	@Query("""
+			SELECT p.format, m.publishedAt, m.reach, m.likes, m.comments, m.shares, m.saves
+			FROM PostMetric m JOIN m.post p
+			WHERE m.userId = :userId
+			  AND m.channel = 'instagram'
+			  AND m.lastSyncedAt IS NOT NULL
+			  AND m.publishedAt >= :from
+			""")
+	List<Object[]> insightRows(@Param("userId") UUID userId, @Param("from") Instant from);
 }
