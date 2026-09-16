@@ -7,6 +7,7 @@ import java.util.UUID;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -73,4 +74,23 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 			group by p.campaign.id, p.status
 			""")
 	List<Object[]> countByCampaignAndStatus(@Param("userId") UUID userId);
+
+	// Due posts; campaign posts only if auto-publish is on
+	@Query("""
+			select p.id from Post p
+			where p.status = in.postkaro.enums.PostStatus.SCHEDULED
+			  and p.scheduledAt <= :now
+			  and (p.campaign is null or p.campaign.autoPublish = true)
+			order by p.scheduledAt
+			""")
+	List<UUID> findDueIds(@Param("now") Instant now);
+
+	// Marks a post as PUBLISHING only if it's still SCHEDULED, so it can't be sent
+	// twice
+	@Modifying
+	@Query("""
+			update Post p set p.status = in.postkaro.enums.PostStatus.PUBLISHING
+			where p.id = :id and p.status = in.postkaro.enums.PostStatus.SCHEDULED
+			""")
+	int claim(@Param("id") UUID id);
 }
