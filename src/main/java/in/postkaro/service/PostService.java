@@ -80,6 +80,20 @@ public class PostService {
 			}
 		}
 
+		// Planned time for a draft (campaign slot); doesn't schedule it
+		if (data.containsKey("plannedAt")) {
+			Object v = data.get("plannedAt");
+			if (v == null || v.toString().isBlank()) {
+				post.setScheduledAt(null);
+			} else {
+				try {
+					post.setScheduledAt(Instant.parse(v.toString()));
+				} catch (Exception e) {
+					throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Pick a valid date and time");
+				}
+			}
+		}
+
 		return postRepository.save(post);
 	}
 
