@@ -174,7 +174,10 @@ public class CampaignFlowService {
 			String url = text(body.get("visualUrl"));
 			post.getMedia().clear();
 			if (!url.isBlank()) {
-				post.getMedia().add(PostMedia.builder().post(post).url(url).build());
+				post.getMedia()
+						.add(PostMedia.builder().post(post)
+								.type(url.matches("(?i).*\\.(mp4|mov|webm)(\\?.*)?$") ? "video" : "image")
+								.url(limit(url, 500)).sortOrder(0).build());
 			}
 		}
 		return toFlowPost(post);
