@@ -138,8 +138,11 @@ public class CalendarService {
 
 		boolean draggable = post.getStatus() != PostStatus.PUBLISHED && post.getStatus() != PostStatus.PUBLISHING;
 
-		return new CalendarPost(post.getId(), titleFrom(post.getCaption()), truncate(post.getCaption(), 140),
-				thumbnailOf(post), post.getFormat(), post.getStage(), channel.toUpperCase(), post.getStatus().name(),
+		String title = post.getTitle() != null && !post.getTitle().isBlank() ? truncate(post.getTitle(), 60)
+				: titleFrom(post.getCaption());
+
+		return new CalendarPost(post.getId(), title, truncate(post.getCaption(), 140), thumbnailOf(post),
+				post.getFormat(), post.getStage(), channel.toUpperCase(), post.getStatus().name(),
 				OffsetDateTime.ofInstant(when, IST), post.getCampaign() != null ? post.getCampaign().getId() : null,
 				draggable);
 	}

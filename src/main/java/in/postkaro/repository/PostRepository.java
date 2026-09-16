@@ -45,4 +45,20 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 	List<Post> findForCalendar(@Param("userId") UUID userId, @Param("from") Instant from, @Param("to") Instant to);
 
 	long countByUserIdAndStatus(UUID userId, PostStatus status);
+
+	@EntityGraph(attributePaths = { "media" })
+	List<Post> findByCampaignIdOrderByScheduledAtAsc(UUID campaignId);
+
+	void deleteByCampaignId(UUID campaignId);
+
+	// Something else already going out within the window (for the clash check)
+	@Query("""
+			select count(p) > 0 from Post p
+			where p.user.id = :userId
+			  and (p.campaign is null or p.campaign.id <> :campaignId)
+			  and p.status in (in.postkaro.enums.PostStatus.SCHEDULED, in.postkaro.enums.PostStatus.NEEDS_REVIEW)
+			  and p.scheduledAt > :from and p.scheduledAt < :to
+			""")
+	boolean existsClash(@Param("userId") UUID userId, @Param("campaignId") UUID campaignId, @Param("from") Instant from,
+			@Param("to") Instant to);
 }

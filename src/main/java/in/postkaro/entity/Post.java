@@ -92,4 +92,11 @@ public class Post {
 
 	@UpdateTimestamp
 	private Instant updatedAt;
+
+	@Column(length = 120)
+	private String title; // card headline, e.g. "Orders close 24 October"
+
+	@Column(nullable = false)
+	@Builder.Default
+	private boolean approved = false; // campaign review approval
 }

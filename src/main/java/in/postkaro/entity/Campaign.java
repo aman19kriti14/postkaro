@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import in.postkaro.enums.CampaignStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -30,28 +31,29 @@ public class Campaign {
 	private User user;
 
 	@Column(nullable = false, length = 120)
-	private String name;
+	@Builder.Default
+	private String name = "Untitled campaign";
 
 	@Column(columnDefinition = "TEXT")
-	private String brief; // what are you promoting, and why now
+	private String brief;
 
 	@Column(length = 300)
-	private String offer; // optional CTA
+	private String offer;
 
 	@Column(length = 30)
-	private String goal; // awareness, sales, launch, followers
+	private String goal;
 
 	@Column(length = 20)
-	private String cadence; // light, steady, heavy
+	private String cadence;
 
 	@Column(length = 30)
 	private String tone;
 
 	@Column(length = 30)
-	private String visuals; // ai_all, ai_images, my_photos, text_only
+	private String visuals;
 
 	@Column(length = 30)
-	private String look; // photographic, warm_grainy, editorial, illustrated
+	private String look;
 
 	@ElementCollection(fetch = FetchType.EAGER)
 	@CollectionTable(name = "campaign_channels", joinColumns = @JoinColumn(name = "campaign_id"))
@@ -59,11 +61,22 @@ public class Campaign {
 	@Builder.Default
 	private Set<String> channels = new HashSet<>();
 
-	@Column(nullable = false)
-	private LocalDate startsOn;
+	private LocalDate startsOn; // nullable while drafting
+
+	private LocalDate endsOn; // nullable while drafting
+
+	@Enumerated(EnumType.STRING)
+	@Column(nullable = false, length = 20)
+	@Builder.Default
+	private CampaignStatus status = CampaignStatus.DRAFT;
 
 	@Column(nullable = false)
-	private LocalDate endsOn;
+	@Builder.Default
+	private int currentStep = 1; // 1 Create, 2 Review, 3 Schedule, 4 Publish
+
+	@Column(nullable = false)
+	@Builder.Default
+	private boolean autoPublish = true;
 
 	@CreationTimestamp
 	private Instant createdAt;
