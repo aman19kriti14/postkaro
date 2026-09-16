@@ -18,23 +18,27 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 	@Query("SELECT p FROM Post p LEFT JOIN FETCH p.media LEFT JOIN FETCH p.channels WHERE p.id = :id AND p.user.id = :userId")
 	Optional<Post> findByIdAndUserId(@Param("id") UUID id, @Param("userId") UUID userId);
 
+	@EntityGraph(attributePaths = { "media", "channels" })
 	List<Post> findByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, PostStatus status);
 
+	@EntityGraph(attributePaths = { "media", "channels" })
 	List<Post> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
-	@EntityGraph(attributePaths = { "media" })
+	@EntityGraph(attributePaths = { "media", "channels" })
 	List<Post> findByUserIdAndStatus(UUID userId, PostStatus status);
 
-	@EntityGraph(attributePaths = { "media", "campaign" })
+	@EntityGraph(attributePaths = { "media", "campaign", "channels" })
 	List<Post> findByUserIdAndCampaignIsNotNull(UUID userId);
 
-	@EntityGraph(attributePaths = { "media" })
+	@EntityGraph(attributePaths = { "media", "channels" })
 	List<Post> findByCampaignIdAndUserIdOrderByScheduledAtAsc(UUID campaignId, UUID userId);
 
-	@EntityGraph(attributePaths = { "media", "campaign" })
+	// Posts from unfinished campaigns stay off the calendar
+	@EntityGraph(attributePaths = { "media", "campaign", "channels" })
 	@Query("""
 			select distinct p from Post p
 			where p.user.id = :userId
+			  and (p.campaign is null or p.campaign.status <> in.postkaro.enums.CampaignStatus.DRAFT)
 			  and (
 			        (p.status = in.postkaro.enums.PostStatus.PUBLISHED
 			            and p.publishedAt >= :from and p.publishedAt < :to)
@@ -46,7 +50,7 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 
 	long countByUserIdAndStatus(UUID userId, PostStatus status);
 
-	@EntityGraph(attributePaths = { "media" })
+	@EntityGraph(attributePaths = { "media", "channels" })
 	List<Post> findByCampaignIdOrderByScheduledAtAsc(UUID campaignId);
 
 	void deleteByCampaignId(UUID campaignId);

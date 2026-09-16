@@ -21,6 +21,7 @@ import in.postkaro.entity.Campaign;
 import in.postkaro.entity.Post;
 import in.postkaro.entity.PostMedia;
 import in.postkaro.entity.User;
+import in.postkaro.enums.CampaignStatus;
 import in.postkaro.enums.PostStatus;
 import in.postkaro.repository.CampaignRepository;
 import in.postkaro.repository.PostRepository;
@@ -37,6 +38,8 @@ public class CampaignService {
 	private final CampaignRepository campaigns;
 	private final PostRepository posts;
 
+	// Old one-shot create (kept for compatibility; the builder uses
+	// CampaignFlowService)
 	@Transactional
 	@SuppressWarnings("unchecked")
 	public Campaign create(User user, Map<String, Object> b) {
@@ -63,7 +66,7 @@ public class CampaignService {
 		Campaign campaign = campaigns.save(Campaign.builder().user(user).name(name).brief(str(b, "brief"))
 				.offer(str(b, "offer")).goal(str(b, "goal")).cadence(str(b, "cadence")).tone(str(b, "tone"))
 				.visuals(str(b, "visuals")).look(str(b, "look")).channels(new HashSet<>(channels)).startsOn(startsOn)
-				.endsOn(endsOn).build());
+				.endsOn(endsOn).status(CampaignStatus.SCHEDULED).currentStep(4).build());
 
 		for (Map<String, Object> item : items) {
 			String title = str(item, "title");
@@ -76,43 +79,15 @@ public class CampaignService {
 
 			List<String> itemChannels = item.get("channels") instanceof List<?> l ? (List<String>) l : channels;
 
-			String text = hook.isBlank() ? title : title + "\n\n" + hook;
-
-			posts.save(Post.builder().user(user).campaign(campaign).caption(text).prompt(text).tone(campaign.getTone())
-					.format(FORMATS.contains(format) ? format : "post").stage(STAGES.contains(stage) ? stage : null)
-					.channels(new HashSet<>(itemChannels)).scheduledAt(plannedAt(item)).status(PostStatus.DRAFT)
-					.build());
+			posts.save(Post.builder().user(user).campaign(campaign)
+					.title(title.length() > 120 ? title.substring(0, 120) : title)
+					.caption(hook.isBlank() ? title : hook).prompt(hook.isBlank() ? title : title + "\n\n" + hook)
+					.tone(campaign.getTone()).format(FORMATS.contains(format) ? format : "post")
+					.stage(STAGES.contains(stage) ? stage : null).channels(new HashSet<>(itemChannels))
+					.scheduledAt(plannedAt(item)).status(PostStatus.DRAFT).build());
 		}
 
 		return campaign;
-	}
-
-	// Planned slot in IST; null if the item has no valid date
-	private java.time.Instant plannedAt(Map<String, Object> item) {
-		try {
-			LocalDate d = LocalDate.parse(str(item, "date"));
-			LocalTime t = str(item, "time").isBlank() ? LocalTime.of(11, 30) : LocalTime.parse(str(item, "time"));
-			return d.atTime(t).atZone(IST).toInstant();
-		} catch (Exception e) {
-			return null;
-		}
-	}
-
-	private static ResponseStatusException bad(String msg) {
-		return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, msg);
-	}
-
-	private static String str(Map<String, Object> b, String k) {
-		Object v = b.get(k);
-		return v == null ? "" : v.toString().trim();
-	}
-
-	private static LocalDate date(Map<String, Object> b, String k) {
-		try {
-			return LocalDate.parse(str(b, k));
-		} catch (Exception e) {
-			throw bad("Pick a valid " + (k.equals("startsOn") ? "start" : "end") + " date");
-		}
 	}
 
 	@Transactional(readOnly = true)
@@ -144,23 +119,37 @@ public class CampaignService {
 		m.put("tone", c.getTone());
 		m.put("visuals", c.getVisuals());
 		m.put("look", c.getLook());
+		m.put("autoPublish", c.isAutoPublish());
 		m.put("counts", counts(list));
 		m.put("posts", list.stream().map(this::postView).toList());
 		return m;
 	}
 
-	private Map<String, Object> summary(Campaign c) {
-		LocalDate today = LocalDate.now(IST);
-		String status = today.isBefore(c.getStartsOn()) ? "upcoming" : today.isAfter(c.getEndsOn()) ? "ended" : "live";
+	// ---------- mapping ----------
 
+	private Map<String, Object> summary(Campaign c) {
 		Map<String, Object> m = new HashMap<>();
 		m.put("id", c.getId().toString());
 		m.put("name", c.getName());
-		m.put("status", status);
-		m.put("startsOn", c.getStartsOn().toString());
-		m.put("endsOn", c.getEndsOn().toString());
-		m.put("channels", c.getChannels());
+		m.put("status", lifecycle(c));
+		m.put("flowStatus", c.getStatus().name());
+		m.put("currentStep", c.getCurrentStep());
+		m.put("startsOn", c.getStartsOn() == null ? null : c.getStartsOn().toString());
+		m.put("endsOn", c.getEndsOn() == null ? null : c.getEndsOn().toString());
+		m.put("channels", sorted(c.getChannels())); // plain list, not the Hibernate set
 		return m;
+	}
+
+	// upcoming / live / ended, or draft while still in the builder
+	private String lifecycle(Campaign c) {
+		if (c.getStatus() == CampaignStatus.DRAFT)
+			return "draft";
+		LocalDate today = LocalDate.now(IST);
+		if (c.getStartsOn() != null && today.isBefore(c.getStartsOn()))
+			return "upcoming";
+		if (c.getEndsOn() != null && today.isAfter(c.getEndsOn()))
+			return "ended";
+		return "live";
 	}
 
 	private Map<String, Integer> counts(List<Post> list) {
@@ -173,7 +162,7 @@ public class CampaignService {
 				else
 					needsWork++;
 			}
-			case SCHEDULED -> scheduled++;
+			case SCHEDULED, PUBLISHING -> scheduled++;
 			case PUBLISHED -> published++;
 			default -> {
 			}
@@ -195,22 +184,68 @@ public class CampaignService {
 
 	private Map<String, Object> postView(Post p) {
 		String caption = p.getCaption() == null ? "" : p.getCaption().strip();
-		String[] parts = caption.split("\\R", 2);
 		PostMedia first = p.getMedia().isEmpty() ? null : p.getMedia().get(0);
+
+		// New posts have a real title; old ones stored "title\n\nhook" in the caption
+		String title;
+		String hook;
+		if (p.getTitle() != null && !p.getTitle().isBlank()) {
+			title = p.getTitle();
+			hook = caption;
+		} else {
+			String[] parts = caption.split("\\R", 2);
+			title = parts[0].isBlank() ? "Untitled post" : parts[0];
+			hook = parts.length > 1 ? parts[1].strip() : "";
+		}
 
 		Map<String, Object> m = new HashMap<>();
 		m.put("id", p.getId().toString());
-		m.put("title", parts[0].isBlank() ? "Untitled post" : parts[0]);
-		m.put("hook", parts.length > 1 ? parts[1].strip() : "");
+		m.put("title", title);
+		m.put("hook", hook);
 		m.put("status", p.getStatus().name());
+		m.put("approved", p.isApproved());
 		m.put("ready", p.getStatus() == PostStatus.DRAFT && isReady(p));
 		m.put("format", p.getFormat());
 		m.put("stage", p.getStage());
-		m.put("channels", p.getChannels());
+		m.put("channels", sorted(p.getChannels())); // plain list, not the Hibernate set
 		m.put("scheduledAt", p.getScheduledAt());
 		m.put("publishedAt", p.getPublishedAt());
 		m.put("mediaUrl", first != null ? first.getUrl() : null);
 		m.put("mediaType", first != null ? first.getType() : null);
 		return m;
+	}
+
+	// ---------- helpers ----------
+
+	private static List<String> sorted(Set<String> set) {
+		return set == null ? List.of() : set.stream().sorted().toList();
+	}
+
+	// Planned slot in IST; null if the item has no valid date
+	private java.time.Instant plannedAt(Map<String, Object> item) {
+		try {
+			LocalDate d = LocalDate.parse(str(item, "date"));
+			LocalTime t = str(item, "time").isBlank() ? LocalTime.of(11, 30) : LocalTime.parse(str(item, "time"));
+			return d.atTime(t).atZone(IST).toInstant();
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private static ResponseStatusException bad(String msg) {
+		return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, msg);
+	}
+
+	private static String str(Map<String, Object> b, String k) {
+		Object v = b.get(k);
+		return v == null ? "" : v.toString().trim();
+	}
+
+	private static LocalDate date(Map<String, Object> b, String k) {
+		try {
+			return LocalDate.parse(str(b, k));
+		} catch (Exception e) {
+			throw bad("Pick a valid " + (k.equals("startsOn") ? "start" : "end") + " date");
+		}
 	}
 }
