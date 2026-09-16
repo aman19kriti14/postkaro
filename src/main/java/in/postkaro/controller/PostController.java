@@ -130,6 +130,30 @@ public class PostController {
 		return ResponseEntity.ok(ApiResponse.ok(result, "Video generated."));
 	}
 
+	@GetMapping("/{id}")
+	public ResponseEntity<ApiResponse<Map<String, Object>>> getPost(@AuthenticationPrincipal User user,
+			@PathVariable UUID id) {
+
+		Post p = postService.getPost(id, user.getId());
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("id", p.getId().toString());
+		result.put("caption", p.getCaption());
+		result.put("prompt", p.getPrompt());
+		result.put("tone", p.getTone());
+		result.put("status", p.getStatus().name());
+		result.put("channels", p.getChannels());
+		result.put("scheduledAt", p.getScheduledAt());
+		result.put("media", p.getMedia().stream().map(m -> {
+			Map<String, Object> mm = new HashMap<>();
+			mm.put("url", m.getUrl());
+			mm.put("type", m.getType());
+			return mm;
+		}).toList());
+
+		return ResponseEntity.ok(ApiResponse.ok(result, "OK"));
+	}
+
 	@PostMapping("/{id}/publish")
 	public ResponseEntity<ApiResponse<Void>> publishPost(@AuthenticationPrincipal User user, @PathVariable UUID id) {
 		publishService.publishPost(id, user.getId());
