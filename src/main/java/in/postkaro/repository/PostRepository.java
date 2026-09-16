@@ -61,4 +61,12 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 			""")
 	boolean existsClash(@Param("userId") UUID userId, @Param("campaignId") UUID campaignId, @Param("from") Instant from,
 			@Param("to") Instant to);
+
+	// [campaignId, status, count] for every campaign post of this user
+	@Query("""
+			select p.campaign.id, p.status, count(p) from Post p
+			where p.user.id = :userId and p.campaign is not null
+			group by p.campaign.id, p.status
+			""")
+	List<Object[]> countByCampaignAndStatus(@Param("userId") UUID userId);
 }

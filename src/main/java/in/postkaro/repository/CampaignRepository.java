@@ -27,4 +27,6 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
 			@Param("to") LocalDate to);
 
 	long countByUserIdAndEndsOnGreaterThanEqual(UUID userId, LocalDate date);
+	
+    List<Campaign> findByUserIdOrderByCreatedAtDesc(UUID userId);
 }

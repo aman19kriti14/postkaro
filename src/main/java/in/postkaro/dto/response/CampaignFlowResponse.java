@@ -19,4 +19,10 @@ public record CampaignFlowResponse(UUID id, String name, String brief, String of
 
 	public record Checks(List<Check> items, boolean canPublish) {
 	}
+
+	public record ListItem(UUID id, String name, String group, // RUNNING, UPCOMING, UNFINISHED, CLOSED
+			LocalDate startsOn, LocalDate endsOn, List<String> channels, int currentStep, long total, long published,
+			long scheduled, long failed, Long reach, // null until insights are connected
+			Double engagementRate, java.time.Instant createdAt) {
+	}
 }

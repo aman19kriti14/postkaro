@@ -1,5 +1,6 @@
 package in.postkaro.controller;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -101,5 +102,17 @@ public class CampaignFlowController {
 		User fresh = userRepository.findByIdWithAccounts(user.getId()).orElseThrow();
 		return fresh.getConnectedAccounts().stream().map(a -> a.getPlatform().toString().toLowerCase())
 				.collect(Collectors.toSet());
+	}
+
+	@GetMapping("/overview")
+	public ResponseEntity<ApiResponse<List<CampaignFlowResponse.ListItem>>> overview(
+			@AuthenticationPrincipal User user) {
+		return ResponseEntity.ok(ApiResponse.ok(flowService.overview(user.getId()), "OK"));
+	}
+
+	@PostMapping("/{id}/duplicate")
+	public ResponseEntity<ApiResponse<CampaignFlowResponse>> duplicate(@AuthenticationPrincipal User user,
+			@PathVariable UUID id) {
+		return ResponseEntity.ok(ApiResponse.ok(flowService.duplicate(user, id), "Duplicated."));
 	}
 }

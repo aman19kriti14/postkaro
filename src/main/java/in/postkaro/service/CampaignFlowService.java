@@ -313,4 +313,54 @@ public class CampaignFlowService {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid date: " + s);
 		}
 	}
+
+	@Transactional(readOnly = true)
+	public List<CampaignFlowResponse.ListItem> overview(UUID userId) {
+		Map<UUID, Map<PostStatus, Long>> counts = new HashMap<>();
+		for (Object[] row : postRepository.countByCampaignAndStatus(userId)) {
+			counts.computeIfAbsent((UUID) row[0], k -> new HashMap<>()).put((PostStatus) row[1], (Long) row[2]);
+		}
+
+		LocalDate today = LocalDate.now(CalendarService.IST);
+
+		return campaignRepository.findByUserIdOrderByCreatedAtDesc(userId).stream().map(c -> {
+			Map<PostStatus, Long> n = counts.getOrDefault(c.getId(), Map.of());
+			long published = n.getOrDefault(PostStatus.PUBLISHED, 0L);
+			long scheduled = n.getOrDefault(PostStatus.SCHEDULED, 0L) + n.getOrDefault(PostStatus.PUBLISHING, 0L);
+			long failed = n.getOrDefault(PostStatus.FAILED, 0L);
+
+			String group;
+			long total;
+			if (c.getStatus() == CampaignStatus.DRAFT) {
+				group = "UNFINISHED";
+				total = n.values().stream().mapToLong(Long::longValue).sum(); // planned posts
+			} else {
+				total = published + scheduled + failed; // unapproved drafts don't count
+				if (c.getStatus() != CampaignStatus.SCHEDULED
+						|| (c.getEndsOn() != null && today.isAfter(c.getEndsOn()))) {
+					group = "CLOSED";
+				} else if (c.getStartsOn() != null && today.isBefore(c.getStartsOn())) {
+					group = "UPCOMING";
+				} else {
+					group = "RUNNING";
+				}
+			}
+
+			return new CampaignFlowResponse.ListItem(c.getId(), c.getName(), group, c.getStartsOn(), c.getEndsOn(),
+					c.getChannels().stream().sorted().toList(), c.getCurrentStep(), total, published, scheduled, failed,
+					null, null, c.getCreatedAt());
+		}).toList();
+	}
+
+	// Copies the brief into a fresh draft; dates are cleared since the old window
+	// has usually passed
+	@Transactional
+	public CampaignFlowResponse duplicate(User user, UUID id) {
+		Campaign src = owned(user.getId(), id);
+		Campaign copy = Campaign.builder().user(user).name(limit("Copy of " + src.getName(), 120)).brief(src.getBrief())
+				.offer(src.getOffer()).goal(src.getGoal()).cadence(src.getCadence()).tone(src.getTone())
+				.visuals(src.getVisuals()).look(src.getLook()).autoPublish(src.isAutoPublish()).build();
+		copy.getChannels().addAll(src.getChannels());
+		return toResponse(campaignRepository.save(copy), List.of());
+	}
 }
