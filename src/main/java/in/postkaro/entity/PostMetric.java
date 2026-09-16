@@ -64,6 +64,10 @@ public class PostMetric {
 	@CreationTimestamp
 	private Instant createdAt;
 
+	// which connected account published this post; its token is used for insights
+	@Column(name = "connected_account_id")
+	private UUID connectedAccountId;
+
 	// engagement % = interactions / reach
 	@Transient
 	public double getEngagementRate() {

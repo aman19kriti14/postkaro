@@ -41,7 +41,7 @@ public class PublishService {
 	private final PostRepository postRepository;
 	private final ConnectedAccountRepository connectedAccountRepository;
 	private final TransactionTemplate tx;
-	private final MetricSyncService metricSyncService; // NEW
+	private final MetricSyncService metricSyncService;
 
 	private final RestClient http = RestClient.create();
 	private final ObjectMapper json = new ObjectMapper();
@@ -54,6 +54,13 @@ public class PublishService {
 		public PublishException(String message) {
 			super(message);
 		}
+	}
+
+	/**
+	 * What a successful publish returns: the platform's post id and the account
+	 * used.
+	 */
+	private record Published(String externalId, UUID accountId) {
 	}
 
 	// ---------- entry points ----------
@@ -93,15 +100,14 @@ public class PublishService {
 				continue; // sent on an earlier attempt
 
 			try {
-				String externalId = publishTo(channel, post, userId); // CHANGED: returns id
+				Published result = publishTo(channel, post, userId);
 				done.add(channel);
 				tx.executeWithoutResult(s -> postRepository.findForPublish(postId)
 						.ifPresent(p -> p.getPublishedChannels().add(channel)));
 
-				// NEW: record for insights. Never let this fail the publish,
-				// otherwise a retry would post the same content twice.
+				// Never let metrics tracking fail the publish, or a retry would double-post
 				try {
-					metricSyncService.recordPublished(postId, userId, channel, externalId);
+					metricSyncService.recordPublished(postId, userId, result.accountId(), channel, result.externalId());
 				} catch (Exception me) {
 					log.warn("Couldn't record metrics for post {} on {}: {}", postId, channel, me.getMessage());
 				}
@@ -131,8 +137,8 @@ public class PublishService {
 
 	// ---------- routing ----------
 
-	/** Returns the platform's id for the published post. */
-	private String publishTo(String channel, Post post, UUID userId) { // CHANGED: void -> String
+	/** Returns the platform's id for the published post and the account used. */
+	private Published publishTo(String channel, Post post, UUID userId) {
 		SocialPlatform platform = platformOf(channel);
 
 		ConnectedAccount account = connectedAccountRepository.findByUserIdAndPlatform(userId, platform).stream()
@@ -146,11 +152,12 @@ public class PublishService {
 			throw new PublishException("Your " + label(channel) + " connection expired. Reconnect it.");
 		}
 
-		return switch (platform) {
+		String externalId = switch (platform) {
 		case INSTAGRAM -> publishToInstagram(post, account);
 		case FACEBOOK -> publishToFacebook(post, account);
 		default -> throw new PublishException("Publishing to " + label(channel) + " isn't available yet");
 		};
+		return new Published(externalId, account.getId());
 	}
 
 	private static SocialPlatform platformOf(String channel) {
@@ -167,7 +174,7 @@ public class PublishService {
 	// ---------- Instagram ----------
 
 	@SuppressWarnings("unchecked")
-	private String publishToInstagram(Post post, ConnectedAccount account) { // CHANGED: returns id
+	private String publishToInstagram(Post post, ConnectedAccount account) {
 		String igUserId = account.getPlatformUserId();
 		String token = account.getAccessToken();
 		if (igUserId == null || igUserId.isBlank()) {
@@ -205,8 +212,8 @@ public class PublishService {
 			throw new PublishException("Instagram didn't publish the post");
 		}
 		String mediaId = String.valueOf(result.get("id"));
-		log.info("Published post {} to Instagram as {}", post.getId(), mediaId);
-		return mediaId; // NEW
+		log.info("Published post {} to Instagram as {} via account {}", post.getId(), mediaId, account.getId());
+		return mediaId;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -232,7 +239,7 @@ public class PublishService {
 	// ---------- Facebook ----------
 
 	@SuppressWarnings("unchecked")
-	private String publishToFacebook(Post post, ConnectedAccount account) { // CHANGED: returns id
+	private String publishToFacebook(Post post, ConnectedAccount account) {
 		String pageId = account.getPlatformUserId();
 		String token = account.getAccessToken();
 		String caption = post.getCaption() == null ? "" : post.getCaption();
@@ -253,7 +260,7 @@ public class PublishService {
 		}
 		String fbId = String.valueOf(result.get("id"));
 		log.info("Published post {} to Facebook as {}", post.getId(), fbId);
-		return fbId; // NEW
+		return fbId;
 	}
 
 	// ---------- helpers ----------

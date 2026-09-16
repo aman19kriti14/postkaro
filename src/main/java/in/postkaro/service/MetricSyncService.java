@@ -42,10 +42,11 @@ public class MetricSyncService {
 	// ---------- called by PublishService after a successful publish ----------
 
 	@Transactional
-	public void recordPublished(UUID postId, UUID userId, String channel, String externalId) {
+	public void recordPublished(UUID postId, UUID userId, UUID accountId, String channel, String externalId) {
 		PostMetric m = metrics.findByPostIdAndChannel(postId, channel).orElseGet(() -> PostMetric.builder()
 				.post(postRepository.getReferenceById(postId)).userId(userId).channel(channel).build());
 		m.setExternalId(externalId);
+		m.setConnectedAccountId(accountId);
 		m.setPublishedAt(Instant.now());
 		metrics.save(m);
 	}
@@ -76,19 +77,23 @@ public class MetricSyncService {
 
 	private void syncOne(PostMetric m) {
 		if (!"instagram".equalsIgnoreCase(m.getChannel())) {
-			return; // Facebook insights come later
+			return; // other platforms later
 		}
 
-		String token = instagramToken(m.getUserId());
-		if (token == null) {
-			throw new IllegalStateException("No active Instagram connection");
+		ConnectedAccount account = accountFor(m);
+		if (account == null) {
+			throw new IllegalStateException("No connected Instagram account can read this post");
 		}
+		String token = account.getAccessToken();
 
 		Map<String, Long> v;
+		boolean insightsOk = true;
 		try {
 			v = fetchInsights(m.getExternalId(), token);
-		} catch (HttpClientErrorException.BadRequest e) {
-			// stories / some media types reject certain metrics
+		} catch (HttpClientErrorException.BadRequest | HttpClientErrorException.Forbidden e) {
+			// stories reject some metrics; 403 = token lacks insights scope → reconnect
+			// needed
+			insightsOk = false;
 			v = fetchBasicCounts(m.getExternalId(), token);
 		}
 
@@ -98,9 +103,53 @@ public class MetricSyncService {
 		m.setComments(v.getOrDefault("comments", m.getComments()));
 		m.setShares(v.getOrDefault("shares", m.getShares()));
 		m.setSaves(v.getOrDefault("saved", m.getSaves()));
-		m.setSyncError(null);
+		m.setSyncError(insightsOk ? null
+				: "Reach unavailable. Reconnect " + account.getPlatformDisplayName() + " to allow insights.");
 		m.setLastSyncedAt(Instant.now());
 		metrics.save(m);
+
+		log.info("Synced {} via {}: reach={} likes={} comments={}{}", m.getExternalId(),
+				account.getPlatformDisplayName(), m.getReach(), m.getLikes(), m.getComments(),
+				insightsOk ? "" : " (no insights permission)");
+	}
+
+	// ---------- which token to use ----------
+
+	/**
+	 * The account that published the post. For older rows without one, try each of
+	 * the user's active Instagram accounts; the one that can read the media owns
+	 * it.
+	 */
+	private ConnectedAccount accountFor(PostMetric m) {
+		if (m.getConnectedAccountId() != null) {
+			return connectedAccounts.findById(m.getConnectedAccountId()).filter(ConnectedAccount::isActive)
+					.filter(a -> a.getAccessToken() != null && !a.getAccessToken().isBlank()).orElse(null);
+		}
+
+		List<ConnectedAccount> candidates = connectedAccounts
+				.findByUserIdAndPlatform(m.getUserId(), SocialPlatform.INSTAGRAM).stream()
+				.filter(ConnectedAccount::isActive)
+				.filter(a -> a.getAccessToken() != null && !a.getAccessToken().isBlank()).toList();
+
+		for (ConnectedAccount a : candidates) {
+			if (ownsMedia(m.getExternalId(), a)) {
+				m.setConnectedAccountId(a.getId()); // remember it; saved with the row
+				log.info("Linked metric {} to account {}", m.getId(), a.getPlatformDisplayName());
+				return a;
+			}
+		}
+		return null;
+	}
+
+	/** A token can only read media from its own account. */
+	private boolean ownsMedia(String mediaId, ConnectedAccount a) {
+		try {
+			JsonNode res = http.get().uri(IG_GRAPH + "/{id}?fields=id&access_token={t}", mediaId, a.getAccessToken())
+					.retrieve().body(JsonNode.class);
+			return res != null && mediaId.equals(res.path("id").asText());
+		} catch (Exception e) {
+			return false;
+		}
 	}
 
 	// ---------- Instagram API ----------
@@ -131,12 +180,6 @@ public class MetricSyncService {
 	}
 
 	// ---------- helpers ----------
-
-	private String instagramToken(UUID userId) {
-		return connectedAccounts.findByUserIdAndPlatform(userId, SocialPlatform.INSTAGRAM).stream()
-				.filter(ConnectedAccount::isActive).map(ConnectedAccount::getAccessToken)
-				.filter(t -> t != null && !t.isBlank()).findFirst().orElse(null);
-	}
 
 	private static String limit(String s) {
 		if (s == null)
