@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import in.postkaro.dto.response.ApiResponse;
+import in.postkaro.dto.response.PosterCopy;
+import in.postkaro.entity.Language;
 import in.postkaro.entity.Post;
 import in.postkaro.entity.User;
 import in.postkaro.service.AiService;
@@ -46,12 +48,13 @@ public class PostController {
 		String prompt = (String) body.get("prompt");
 		String tone = (String) body.getOrDefault("tone", "warm");
 		List<String> channels = (List<String>) body.getOrDefault("channels", List.of("instagram"));
+		Language language = parseLanguage((String) body.get("language"));
 
 		// Add the saved brand voice to the brief; unchanged if none is set
 		String voice = brandSettings.promptContext(user.getId());
 		String briefWithVoice = voice.isBlank() ? prompt : prompt + "\n\nBrand voice (follow strictly):\n" + voice;
 
-		String caption = aiService.generateCaption(briefWithVoice, tone, channels);
+		String caption = aiService.generateCaption(briefWithVoice, tone, channels, language);
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("caption", caption), "Caption generated."));
 	}
 
@@ -61,9 +64,33 @@ public class PostController {
 
 		String caption = (String) body.get("caption");
 		String action = (String) body.get("action");
+		Language language = parseLanguage((String) body.get("language"));
 
-		String refined = aiService.refineCaption(caption, action);
+		String refined = aiService.refineCaption(caption, action, language);
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("caption", refined), "Caption refined."));
+	}
+
+	@PostMapping("/generate-poster-copy")
+	public ResponseEntity<ApiResponse<PosterCopy>> generatePosterCopy(@AuthenticationPrincipal User user,
+			@RequestBody Map<String, Object> body) {
+
+		String topic = (String) body.get("topic");
+		String brandName = (String) body.get("brandName");
+		Language language = parseLanguage((String) body.get("language"));
+
+		PosterCopy copy = aiService.generatePosterCopy(topic, brandName, language);
+		return ResponseEntity.ok(ApiResponse.ok(copy, "Poster copy generated."));
+	}
+
+	private Language parseLanguage(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return Language.ENGLISH;
+		}
+		try {
+			return Language.valueOf(raw.trim().toUpperCase());
+		} catch (IllegalArgumentException e) {
+			return Language.ENGLISH;
+		}
 	}
 
 	@PostMapping("/draft")
