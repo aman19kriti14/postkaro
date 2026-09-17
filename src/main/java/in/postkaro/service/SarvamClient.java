@@ -15,7 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 public class SarvamClient {
 
 	private static final String BASE_URL = "https://api.sarvam.ai";
-	private static final String MODEL = "sarvam-30b";
+	private static final String MODEL = "sarvam-105b";
 
 	private final RestClient restClient;
 
@@ -32,7 +32,7 @@ public class SarvamClient {
 				"temperature", 0.7, "max_tokens", 800);
 
 		try {
-			Map<?, ?> response = restClient.post().uri("/v2/chat/completions").body(body).retrieve().body(Map.class);
+			Map<?, ?> response = restClient.post().uri("/v1/chat/completions").body(body).retrieve().body(Map.class);
 
 			return extractContent(response);
 		} catch (Exception e) {
