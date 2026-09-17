@@ -181,4 +181,23 @@ public class MediaService {
 		Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
 		return (String) message.get("content");
 	}
+	// ---------- NEW: storage helpers (existing methods above are untouched)
+	// ----------
+
+	/**
+	 * Upload raw bytes (logo, user upload, poster) to Cloudinary; returns a
+	 * permanent URL.
+	 */
+	public String storeBytes(byte[] bytes, String contentType) {
+		String dataUri = "data:" + contentType + ";base64," + java.util.Base64.getEncoder().encodeToString(bytes);
+		return uploadToCloudinary(dataUri);
+	}
+
+	/**
+	 * Copy a remote file (e.g. a fal.ai link) to Cloudinary; returns a permanent
+	 * URL.
+	 */
+	public String storeFromUrl(String sourceUrl) {
+		return uploadToCloudinary(sourceUrl);
+	}
 }

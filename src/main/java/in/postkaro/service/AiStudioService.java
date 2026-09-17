@@ -45,6 +45,7 @@ public class AiStudioService {
 	private static final Set<String> SOURCES = Set.of("brand_voice", "product_list", "past_top_posts",
 			"uploaded_photos");
 	private static final int IDEA_COUNT = 6;
+	private final BrandSettingsService brandSettings;
 
 	private final IdeaSetRepository sets;
 	private final UserRepository users;
@@ -139,15 +140,16 @@ public class AiStudioService {
 			Map<String, InsightService.Fact> facts, UUID userId) {
 
 		StringBuilder ctx = new StringBuilder();
-
 		if (sources.contains("brand_voice")) {
-			// ⚠️ ADAPT: pull brand name / category / description from your UserProfile
-			// getters
 			var p = user.getProfile();
 			if (p != null) {
 				ctx.append("Brand: ").append(safe(p.getBrandName())).append('\n');
 				ctx.append("Category: ").append(safe(p.getCategory())).append('\n');
 				ctx.append("About: ").append(safe(p.getDescription())).append('\n');
+			}
+			String voice = brandSettings.promptContext(userId);
+			if (!voice.isBlank()) {
+				ctx.append("\nBrand voice (follow this strictly):\n").append(voice).append('\n');
 			}
 		}
 
@@ -182,7 +184,7 @@ public class AiStudioService {
 				- Mix formats across the ideas where possible.
 				- title: short and specific, max 8 words, no emojis, no hashtags.
 				- description: 1–2 plain sentences describing what the post shows. Calm, concrete, no hype.
-				- caption: a ready-to-use caption in the brand's voice, max 60 words, up to 3 hashtags at the end.
+								- caption: a ready-to-use caption that follows the brand voice above exactly, max 60 words, up to 3 hashtags at the end.
 				- insightKey: pick the key of ONE fact below that genuinely supports this idea, or null.
 				  Never invent numbers. Never write statistics anywhere else.
 				- setName: 2–4 word label for this batch, e.g. "This week · rain".
@@ -193,9 +195,10 @@ public class AiStudioService {
 				Respond with JSON only:
 				{"setName": "...", "ideas": [{"format": "...", "channels": ["..."], "title": "...",
 				  "description": "...", "caption": "...", "insightKey": null}]}
-				""".formatted(ctx.toString().isBlank() ? "(no brand context provided)" : ctx.toString().trim(),
-				brief.replace("\"", "'"), IDEA_COUNT, String.join(", ", formats), String.join(", ", channels),
-				factList);
+				"""
+				.formatted(ctx.toString().isBlank() ? "(no brand context provided)" : ctx.toString().trim(),
+						brief.replace("\"", "'"), IDEA_COUNT, String.join(", ", formats), String.join(", ", channels),
+						factList);
 	}
 
 	private JsonNode callOpenAi(String prompt) {

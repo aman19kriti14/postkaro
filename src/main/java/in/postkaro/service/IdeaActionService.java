@@ -42,6 +42,7 @@ public class IdeaActionService {
 	private final UserRepository users;
 	private final AiStudioService studio;
 	private final TransactionTemplate tx;
+	private final BrandSettingsService brandSettings;
 
 	private final RestClient http = RestClient.create();
 
@@ -126,9 +127,11 @@ public class IdeaActionService {
 		default -> "square_hd";
 		};
 
+		String palette = brandSettings.paletteHint(userId);
 		String prompt = "Editorial product photograph for a social media " + snapshot.getFormat() + ". "
 				+ snapshot.getTitle() + ". " + snapshot.getDescription()
-				+ " Natural light, calm, minimal composition, no text, no logos, no watermarks.";
+				+ (palette.isBlank() ? "" : " Colour palette leaning on " + palette + ".")
+				+ " Natural light, calm, minimal composition. No text, no letters, no labels, no logos, no watermarks, no packaging print.";
 
 		String url;
 		try {
