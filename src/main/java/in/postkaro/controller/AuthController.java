@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import in.postkaro.dto.request.LogoutRequest;
 import in.postkaro.dto.request.RefreshRequest;
 import in.postkaro.dto.request.SigninRequest;
 import in.postkaro.dto.request.SignupRequest;
@@ -58,4 +59,11 @@ public class AuthController {
 		User freshUser = userRepository.findByIdWithAccounts(user.getId()).orElseThrow();
 		return ResponseEntity.ok(ApiResponse.ok(UserResponse.from(freshUser), "OK"));
 	}
+
+	@PostMapping("/logout")
+	public ResponseEntity<Void> logout(@RequestBody LogoutRequest request) {
+		authService.logout(request.getRefreshToken());
+		return ResponseEntity.noContent().build();
+	}
+
 }
