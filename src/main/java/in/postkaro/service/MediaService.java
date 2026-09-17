@@ -1,13 +1,14 @@
 package in.postkaro.service;
 
-import lombok.RequiredArgsConstructor;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
-import java.util.List;
-import java.util.Map;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -188,9 +189,49 @@ public class MediaService {
 	 * Upload raw bytes (logo, user upload, poster) to Cloudinary; returns a
 	 * permanent URL.
 	 */
+	/**
+	 * Upload raw bytes (logo, user upload, poster) to Cloudinary; returns a
+	 * permanent URL.
+	 */
 	public String storeBytes(byte[] bytes, String contentType) {
 		String dataUri = "data:" + contentType + ";base64," + java.util.Base64.getEncoder().encodeToString(bytes);
-		return uploadToCloudinary(dataUri);
+		String resourceType = contentType.startsWith("video/") ? "video" : "image";
+		return uploadAs(dataUri, resourceType);
+	}
+
+	/**
+	 * Same as uploadToCloudinary, but forces image/video so Cloudinary never stores
+	 * it as "raw".
+	 */
+	@SuppressWarnings("unchecked")
+	private String uploadAs(String file, String resourceType) {
+		String uploadUrl = "https://api.cloudinary.com/v1_1/" + cloudName + "/" + resourceType + "/upload";
+
+		try {
+			Map<String, Object> result = restClient.post().uri(uploadUrl).contentType(MediaType.APPLICATION_JSON)
+					.body(Map.of("file", file, "upload_preset", "postkaro_unsigned")).retrieve().body(Map.class);
+			return (String) result.get("secure_url");
+		} catch (Exception e) {
+			System.out.println("Unsigned " + resourceType + " upload failed, trying signed: " + e.getMessage());
+		}
+
+		long timestamp = System.currentTimeMillis() / 1000;
+		String signature;
+		try {
+			java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+			StringBuilder sb = new StringBuilder();
+			for (byte b : md.digest(
+					("timestamp=" + timestamp + cloudApiSecret).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+				sb.append(String.format("%02x", b));
+			signature = sb.toString();
+		} catch (Exception e) {
+			throw new RuntimeException("Failed to sign upload", e);
+		}
+
+		Map<String, Object> result = restClient.post().uri(uploadUrl).contentType(MediaType.APPLICATION_JSON)
+				.body(Map.of("file", file, "api_key", cloudApiKey, "timestamp", timestamp, "signature", signature))
+				.retrieve().body(Map.class);
+		return (String) result.get("secure_url");
 	}
 
 	/**
