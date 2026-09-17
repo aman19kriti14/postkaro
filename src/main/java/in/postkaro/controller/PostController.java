@@ -22,6 +22,7 @@ import in.postkaro.dto.response.ApiResponse;
 import in.postkaro.entity.Post;
 import in.postkaro.entity.User;
 import in.postkaro.service.AiService;
+import in.postkaro.service.BrandSettingsService;
 import in.postkaro.service.MediaService;
 import in.postkaro.service.PostService;
 import in.postkaro.service.PublishService;
@@ -36,6 +37,7 @@ public class PostController {
 	private final AiService aiService;
 	private final MediaService mediaService;
 	private final PublishService publishService;
+	private final BrandSettingsService brandSettings;
 
 	@PostMapping("/generate-caption")
 	public ResponseEntity<ApiResponse<Map<String, String>>> generateCaption(@AuthenticationPrincipal User user,
@@ -45,7 +47,11 @@ public class PostController {
 		String tone = (String) body.getOrDefault("tone", "warm");
 		List<String> channels = (List<String>) body.getOrDefault("channels", List.of("instagram"));
 
-		String caption = aiService.generateCaption(prompt, tone, channels);
+		// Add the saved brand voice to the brief; unchanged if none is set
+		String voice = brandSettings.promptContext(user.getId());
+		String briefWithVoice = voice.isBlank() ? prompt : prompt + "\n\nBrand voice (follow strictly):\n" + voice;
+
+		String caption = aiService.generateCaption(briefWithVoice, tone, channels);
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("caption", caption), "Caption generated."));
 	}
 
