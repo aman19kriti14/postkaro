@@ -181,11 +181,19 @@ public class PublishService {
 			throw new PublishException("Reconnect Instagram");
 		}
 
-		PostMedia media = post.getMedia().stream().findFirst()
-				.orElseThrow(() -> new PublishException("Instagram needs an image or video"));
-		boolean video = "video".equalsIgnoreCase(media.getType());
-
+		List<PostMedia> all = ordered(post);
+		if (all.isEmpty()) {
+			throw new PublishException("Instagram needs an image or video");
+		}
 		String caption = post.getCaption() == null ? "" : post.getCaption();
+
+		// 2+ items → carousel
+		if (all.size() > 1) {
+			return publishInstagramCarousel(post, account, all, caption);
+		}
+
+		PostMedia media = all.get(0);
+		boolean video = "video".equalsIgnoreCase(media.getType());
 
 		// Step 1: create the media container
 		String body = video
@@ -213,6 +221,66 @@ public class PublishService {
 		}
 		String mediaId = String.valueOf(result.get("id"));
 		log.info("Published post {} to Instagram as {} via account {}", post.getId(), mediaId, account.getId());
+		return mediaId;
+	}
+
+	/**
+	 * Instagram carousel (2–10 items): one container per item with
+	 * is_carousel_item=true, then a CAROUSEL container listing them, then publish.
+	 * Instagram crops every slide to the first slide's aspect ratio.
+	 */
+	@SuppressWarnings("unchecked")
+	private String publishInstagramCarousel(Post post, ConnectedAccount account, List<PostMedia> items,
+			String caption) {
+		String igUserId = account.getPlatformUserId();
+		String token = account.getAccessToken();
+
+		if (items.size() > MAX_CAROUSEL) {
+			throw new PublishException("Instagram carousels can have at most " + MAX_CAROUSEL + " slides");
+		}
+
+		// Step 1: a child container for each slide
+		List<String> childIds = new ArrayList<>();
+		boolean anyVideo = false;
+		for (PostMedia m : items) {
+			boolean video = "video".equalsIgnoreCase(m.getType());
+			anyVideo |= video;
+			String body = video
+					? form("media_type", "VIDEO", "video_url", m.getUrl(), "is_carousel_item", "true", "access_token",
+							token)
+					: form("image_url", MEDIA_PROXY + m.getId(), "is_carousel_item", "true", "access_token", token);
+
+			Map<String, Object> child = http.post().uri(INSTAGRAM_API + "/" + igUserId + "/media")
+					.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(body).retrieve().body(Map.class);
+			if (child == null || child.get("id") == null) {
+				throw new PublishException("Instagram didn't accept slide " + (childIds.size() + 1));
+			}
+			String childId = String.valueOf(child.get("id"));
+			waitForInstagram(childId, token, video ? 40 : 10, video ? 3000 : 2000);
+			childIds.add(childId);
+		}
+
+		// Step 2: the carousel container
+		Map<String, Object> parent = http.post().uri(INSTAGRAM_API + "/" + igUserId + "/media")
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(form("media_type", "CAROUSEL", "children",
+						String.join(",", childIds), "caption", caption, "access_token", token))
+				.retrieve().body(Map.class);
+		if (parent == null || parent.get("id") == null) {
+			throw new PublishException("Instagram didn't accept the carousel");
+		}
+		String parentId = String.valueOf(parent.get("id"));
+		waitForInstagram(parentId, token, anyVideo ? 40 : 15, anyVideo ? 3000 : 2000);
+
+		// Step 3: publish
+		Map<String, Object> result = http.post().uri(INSTAGRAM_API + "/" + igUserId + "/media_publish")
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED)
+				.body(form("creation_id", parentId, "access_token", token)).retrieve().body(Map.class);
+		if (result == null || result.get("id") == null) {
+			throw new PublishException("Instagram didn't publish the carousel");
+		}
+		String mediaId = String.valueOf(result.get("id"));
+		log.info("Published post {} to Instagram as carousel {} ({} slides) via account {}", post.getId(), mediaId,
+				childIds.size(), account.getId());
 		return mediaId;
 	}
 
@@ -244,8 +312,14 @@ public class PublishService {
 		String token = account.getAccessToken();
 		String caption = post.getCaption() == null ? "" : post.getCaption();
 
-		PostMedia image = post.getMedia().stream().filter(m -> "image".equalsIgnoreCase(m.getType())).findFirst()
-				.orElse(null);
+		List<PostMedia> images = ordered(post).stream().filter(m -> "image".equalsIgnoreCase(m.getType())).toList();
+
+		// 2+ images → one multi-photo post
+		if (images.size() > 1) {
+			return publishFacebookMultiPhoto(post, pageId, token, images, caption);
+		}
+
+		PostMedia image = images.isEmpty() ? null : images.get(0);
 
 		// Token goes in the body, not the URL, so it never lands in access logs
 		String path = image != null ? "/photos" : "/feed";
@@ -263,7 +337,52 @@ public class PublishService {
 		return fbId;
 	}
 
+	/**
+	 * Facebook multi-photo post: upload each photo unpublished, then create one
+	 * feed post with all of them attached.
+	 */
+	@SuppressWarnings("unchecked")
+	private String publishFacebookMultiPhoto(Post post, String pageId, String token, List<PostMedia> images,
+			String caption) {
+		List<String> photoIds = new ArrayList<>();
+		for (PostMedia m : images.stream().limit(MAX_CAROUSEL).toList()) {
+			Map<String, Object> photo = http.post().uri(FACEBOOK_API + "/" + pageId + "/photos")
+					.contentType(MediaType.APPLICATION_FORM_URLENCODED)
+					.body(form("url", m.getUrl(), "published", "false", "access_token", token)).retrieve()
+					.body(Map.class);
+			if (photo == null || photo.get("id") == null) {
+				throw new PublishException("Facebook didn't accept photo " + (photoIds.size() + 1));
+			}
+			photoIds.add(String.valueOf(photo.get("id")));
+		}
+
+		List<String> pairs = new ArrayList<>(List.of("message", caption));
+		for (int i = 0; i < photoIds.size(); i++) {
+			pairs.add("attached_media[" + i + "]");
+			pairs.add("{\"media_fbid\":\"" + photoIds.get(i) + "\"}");
+		}
+		pairs.add("access_token");
+		pairs.add(token);
+
+		Map<String, Object> result = http.post().uri(FACEBOOK_API + "/" + pageId + "/feed")
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED).body(form(pairs.toArray(String[]::new))).retrieve()
+				.body(Map.class);
+		if (result == null || result.get("id") == null) {
+			throw new PublishException("Facebook didn't publish the post");
+		}
+		String fbId = String.valueOf(result.get("id"));
+		log.info("Published post {} to Facebook as multi-photo {} ({} photos)", post.getId(), fbId, photoIds.size());
+		return fbId;
+	}
+
 	// ---------- helpers ----------
+
+	private static final int MAX_CAROUSEL = 10;
+
+	/** Media in the order the user arranged it. */
+	private static List<PostMedia> ordered(Post post) {
+		return post.getMedia().stream().sorted(java.util.Comparator.comparingInt(PostMedia::getSortOrder)).toList();
+	}
 
 	private String friendly(Exception e) {
 		if (e instanceof PublishException)

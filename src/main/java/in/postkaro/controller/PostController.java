@@ -25,6 +25,7 @@ import in.postkaro.entity.Post;
 import in.postkaro.entity.User;
 import in.postkaro.service.AiService;
 import in.postkaro.service.BrandSettingsService;
+import in.postkaro.service.CarouselGenerator;
 import in.postkaro.service.MediaService;
 import in.postkaro.service.PostService;
 import in.postkaro.service.PublishService;
@@ -40,6 +41,7 @@ public class PostController {
 	private final MediaService mediaService;
 	private final PublishService publishService;
 	private final BrandSettingsService brandSettings;
+	private final CarouselGenerator carouselGenerator;
 
 	@PostMapping("/generate-caption")
 	public ResponseEntity<ApiResponse<Map<String, String>>> generateCaption(@AuthenticationPrincipal User user,
@@ -168,6 +170,26 @@ public class PostController {
 
 		Map<String, Object> result = mediaService.generateImage(user.getId(), req);
 		return ResponseEntity.ok(ApiResponse.ok(result, "Image generated."));
+	}
+
+	/**
+	 * One idea → a matching carousel. Body: { prompt, slides (2–10), aspectRatio
+	 * ("1:1" | "4:5"), language, productImageUrls, useLogo } → { urls, slides,
+	 * caption, aspectRatio }. Takes 1–2 minutes.
+	 */
+	@PostMapping("/generate-carousel")
+	public ResponseEntity<ApiResponse<CarouselGenerator.CarouselResult>> generateCarousel(
+			@AuthenticationPrincipal User user, @RequestBody Map<String, Object> body) {
+		List<String> productImageUrls = body.get("productImageUrls") instanceof List<?> l
+				? l.stream().filter(String.class::isInstance).map(String.class::cast).toList()
+				: List.of();
+		int slides = body.get("slides") instanceof Number n ? n.intValue() : 5;
+		Boolean useLogo = body.get("useLogo") instanceof Boolean b ? b : Boolean.TRUE;
+
+		CarouselGenerator.CarouselResult result = carouselGenerator.generate(user.getId(),
+				new CarouselGenerator.CarouselRequest((String) body.get("prompt"), slides,
+						(String) body.get("aspectRatio"), (String) body.get("language"), productImageUrls, useLogo));
+		return ResponseEntity.ok(ApiResponse.ok(result, "Carousel generated."));
 	}
 
 	@PostMapping("/generate-video")

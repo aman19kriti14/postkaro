@@ -1,6 +1,7 @@
 package in.postkaro.service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -35,15 +36,9 @@ public class PostService {
 
 		post = postRepository.save(post);
 
-		// Save media if present
-		String mediaUrl = (String) data.get("mediaUrl");
-		String mediaType = (String) data.get("mediaType");
-		System.out.println("DRAFT MEDIA: url=" + mediaUrl + " type=" + mediaType);
-
-		if (mediaUrl != null && !mediaUrl.isBlank()) {
-			PostMedia media = PostMedia.builder().post(post).type(mediaType != null ? mediaType : "image").url(mediaUrl)
-					.dimensions("1024x1024").sortOrder(0).build();
-			post.getMedia().add(media);
+		// Save media if present (single mediaUrl or an ordered media list for
+		// carousels)
+		if (applyMedia(post, data)) {
 			post = postRepository.save(post);
 		}
 
@@ -69,16 +64,7 @@ public class PostService {
 			post.setChannels(new HashSet<>((List<String>) data.get("channels")));
 
 		// Media: replace whatever was there with what the page sends
-		if (data.containsKey("mediaUrl")) {
-			String mediaUrl = (String) data.get("mediaUrl");
-			String mediaType = (String) data.get("mediaType");
-
-			post.getMedia().clear();
-			if (mediaUrl != null && !mediaUrl.isBlank()) {
-				post.getMedia().add(PostMedia.builder().post(post).type(mediaType != null ? mediaType : "image")
-						.url(mediaUrl).dimensions("1024x1024").sortOrder(0).build());
-			}
-		}
+		applyMedia(post, data);
 
 		// Planned time for a draft (campaign slot); doesn't schedule it
 		if (data.containsKey("plannedAt")) {
@@ -139,5 +125,64 @@ public class PostService {
 
 	public List<Post> getUserDrafts(UUID userId) {
 		return postRepository.findByUserIdAndStatusOrderByCreatedAtDesc(userId, PostStatus.DRAFT);
+	}
+
+	// ---------- media ----------
+
+	private static final int MAX_MEDIA = 10;
+
+	/**
+	 * Replaces the post's media with what the page sent. Accepts either: - "media":
+	 * [{ "url": "...", "type": "image" | "video" }, ...] in slide order (carousel),
+	 * or - "mediaUrl" + "mediaType" (single item, what older pages send). "media"
+	 * wins when both are present. Returns true if media was touched.
+	 */
+	@SuppressWarnings("unchecked")
+	private boolean applyMedia(Post post, Map<String, Object> data) {
+		List<String[]> items = new ArrayList<>(); // [url, type]
+
+		if (data.get("media") instanceof List<?> list) {
+			for (Object o : list) {
+				if (!(o instanceof Map<?, ?> m))
+					continue;
+				Object url = m.get("url");
+				Object type = m.get("type");
+				if (url instanceof String u && !u.isBlank()) {
+					items.add(new String[] { u, "video".equals(type) ? "video" : "image" });
+				}
+			}
+		} else if (data.containsKey("mediaUrl")) {
+			String mediaUrl = (String) data.get("mediaUrl");
+			String mediaType = (String) data.get("mediaType");
+			if (mediaUrl != null && !mediaUrl.isBlank()) {
+				items.add(new String[] { mediaUrl, "video".equals(mediaType) ? "video" : "image" });
+			}
+		} else {
+			return false; // page didn't send media — leave it alone
+		}
+
+		if (items.size() > MAX_MEDIA) {
+			throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+					"A carousel can have at most " + MAX_MEDIA + " slides");
+		}
+		for (String[] it : items) {
+			if (!it[0].startsWith("https://") && !it[0].startsWith("http://")) {
+				throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "One of the media links is invalid");
+			}
+		}
+
+		post.getMedia().clear();
+		for (int i = 0; i < items.size(); i++) {
+			post.getMedia().add(PostMedia.builder().post(post).type(items.get(i)[1]).url(items.get(i)[0])
+					.dimensions("1024x1024").sortOrder(i).build());
+		}
+
+		// Keep the format in step with the media so calendar/analytics label it right
+		if (items.size() > 1) {
+			post.setFormat("carousel");
+		} else if ("carousel".equals(post.getFormat())) {
+			post.setFormat(items.isEmpty() || "image".equals(items.get(0)[1]) ? "post" : "reel");
+		}
+		return true;
 	}
 }
