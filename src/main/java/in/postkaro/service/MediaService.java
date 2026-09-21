@@ -8,8 +8,11 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import in.postkaro.dto.request.PromptEnhancer;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MediaService {
@@ -31,8 +34,102 @@ public class MediaService {
 
 	private final RestClient restClient = RestClient.create();
 
-	@SuppressWarnings("unchecked")
+	// ---------- NEW: Nano Banana Pro pipeline ----------
+	private final PromptEnhancer promptEnhancer;
+	private final FalImageClient falImageClient;
+	private final in.postkaro.repository.BrandSettingsRepository brandRepo;
+	private final in.postkaro.repository.UserProfileRepository profileRepo;
+
+	/**
+	 * What /posts/generate-image accepts. Only prompt is required; old clients
+	 * sending {prompt, size} keep working.
+	 */
+	public record ImageRequest(String prompt, String size, String aspectRatio, String contentType, String language,
+			List<String> productImageUrls, Boolean useLogo, Integer variations) {
+	}
+
+	/**
+	 * Idea → art-directed prompt (with the user's brand kit) → Nano Banana Pro →
+	 * Cloudinary. Uses edit mode automatically when a product photo or logo is
+	 * passed; pure text-to-image otherwise.
+	 */
+	public Map<String, Object> generateImage(java.util.UUID userId, ImageRequest req) {
+		if (req.prompt() == null || req.prompt().isBlank()) {
+			throw new IllegalArgumentException("prompt is required");
+		}
+
+		// ---- brand kit (all optional) ----
+		var brand = userId == null ? null : brandRepo.findByUserId(userId).orElse(null);
+		var profile = userId == null ? null : profileRepo.findByUserId(userId).orElse(null);
+
+		String brandName = profile != null ? profile.getBrandName() : null;
+		String industry = profile != null && profile.getCategory() != null
+				? profile.getCategory().name().toLowerCase().replace('_', ' ')
+				: null;
+		if (profile != null && profile.getDescription() != null && !profile.getDescription().isBlank()) {
+			industry = (industry == null ? "" : industry + " — ") + profile.getDescription();
+		}
+		String colors = brand != null && !brand.getColors().isEmpty() ? String.join(", ", brand.getColors()) : null;
+		String tone = brand != null ? brand.getTone() : null;
+
+		// ---- reference images: product photos first, then the logo ----
+		List<String> refs = new java.util.ArrayList<>();
+		if (req.productImageUrls() != null) {
+			req.productImageUrls().stream().filter(u -> u != null && !u.isBlank()).limit(3).forEach(refs::add);
+		}
+		boolean hasProduct = !refs.isEmpty();
+		boolean hasLogo = false;
+		if (!Boolean.FALSE.equals(req.useLogo()) && brand != null && brand.getLogoUrl() != null
+				&& !brand.getLogoUrl().isBlank()) {
+			refs.add(brand.getLogoUrl());
+			hasLogo = true;
+		}
+
+		String aspect = req.aspectRatio();
+		if (aspect == null || aspect.isBlank()) {
+			aspect = switch (req.size() == null ? "" : req.size()) {
+			case "portrait", "story", "reel" -> "9:16";
+			case "feed", "portrait_feed" -> "4:5";
+			case "landscape" -> "16:9";
+			case "square" -> "1:1";
+			default -> null; // let the enhancer decide
+			};
+		}
+
+		// ---- 1. enhance ----
+		var enhanced = promptEnhancer.enhance(new PromptEnhancer.EnhanceRequest(req.prompt(),
+				req.contentType() == null ? "announcement" : req.contentType(), brandName, colors, tone, industry,
+				req.language() == null ? "English" : req.language(), "Instagram", aspect, hasLogo, hasProduct));
+		log.info("Enhanced image prompt ({} refs): {}", refs.size(), enhanced.prompt());
+
+		// ---- 2. generate ----
+		int n = req.variations() == null ? 1 : Math.max(1, Math.min(4, req.variations()));
+		String finalAspect = List.of("1:1", "4:5", "9:16", "16:9", "3:4", "4:3").contains(enhanced.aspectRatio())
+				? enhanced.aspectRatio()
+				: "1:1";
+		List<String> falUrls = falImageClient.generate(enhanced.prompt(), refs, finalAspect, "2K", n);
+
+		// ---- 3. store permanently ----
+		List<String> urls = falUrls.stream().map(this::uploadToCloudinary).toList();
+
+		Map<String, Object> out = new java.util.HashMap<>();
+		out.put("url", urls.get(0)); // backwards compatible with the old response
+		out.put("urls", urls);
+		out.put("aspectRatio", finalAspect);
+		out.put("caption", enhanced.caption());
+		out.put("prompt", enhanced.prompt());
+		return out;
+	}
+
+	/** Old signature — kept so existing callers compile. No brand kit applied. */
 	public Map<String, Object> generateImage(String userPrompt, String size) {
+		return generateImage(null, new ImageRequest(userPrompt, size, null, null, null, null, false, 1));
+	}
+
+	/** Previous FLUX Pro 1.1 path, kept for one release as a fallback. Unused. */
+	@SuppressWarnings("unchecked")
+	@Deprecated
+	public Map<String, Object> generateImageFluxLegacy(String userPrompt, String size) {
 		String imagePrompt = craftImagePrompt(userPrompt);
 		System.out.println("IMAGE PROMPT: " + imagePrompt);
 

@@ -152,8 +152,21 @@ public class PostController {
 	public ResponseEntity<ApiResponse<Map<String, Object>>> generateImage(@AuthenticationPrincipal User user,
 			@RequestBody Map<String, Object> body) {
 		String prompt = (String) body.get("prompt");
-		String size = (String) body.getOrDefault("size", "square");
-		Map<String, Object> result = mediaService.generateImage(prompt, size);
+		if (prompt == null || prompt.isBlank()) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "prompt is required");
+		}
+
+		List<String> productImageUrls = body.get("productImageUrls") instanceof List<?> l
+				? l.stream().filter(String.class::isInstance).map(String.class::cast).toList()
+				: List.of();
+		Integer variations = body.get("variations") instanceof Number n ? n.intValue() : 1;
+		Boolean useLogo = body.get("useLogo") instanceof Boolean b ? b : Boolean.TRUE;
+
+		MediaService.ImageRequest req = new MediaService.ImageRequest(prompt, (String) body.get("size"),
+				(String) body.get("aspectRatio"), (String) body.get("contentType"), (String) body.get("language"),
+				productImageUrls, useLogo, variations);
+
+		Map<String, Object> result = mediaService.generateImage(user.getId(), req);
 		return ResponseEntity.ok(ApiResponse.ok(result, "Image generated."));
 	}
 
