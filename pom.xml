@@ -40,6 +40,13 @@
 			<version>2.0.0</version>
 		</dependency>
 
+		<!-- HTML parsing for website brand scraping -->
+		<dependency>
+			<groupId>org.jsoup</groupId>
+			<artifactId>jsoup</artifactId>
+			<version>1.18.1</version>
+		</dependency>
+
 		<!-- Validation -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

@@ -40,7 +40,8 @@ public class Idea {
 	public enum Status {
 		ACTIVE, // shown as a card
 		DISMISSED, // hidden, can be restored
-		DRAFTED // turned into a post (still shown, linked to the draft)
+		DRAFTED,
+		FAILED// turned into a post (still shown, linked to the draft)
 	}
 
 	@Id

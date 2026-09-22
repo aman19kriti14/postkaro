@@ -24,6 +24,7 @@ import in.postkaro.entity.Language;
 import in.postkaro.entity.Post;
 import in.postkaro.entity.User;
 import in.postkaro.service.AiService;
+import in.postkaro.service.BrandProfileService;
 import in.postkaro.service.BrandSettingsService;
 import in.postkaro.service.CarouselGenerator;
 import in.postkaro.service.MediaService;
@@ -41,6 +42,7 @@ public class PostController {
 	private final MediaService mediaService;
 	private final PublishService publishService;
 	private final BrandSettingsService brandSettings;
+	private final BrandProfileService brandProfile;
 	private final CarouselGenerator carouselGenerator;
 
 	@PostMapping("/generate-caption")
@@ -55,6 +57,12 @@ public class PostController {
 		// Add the saved brand voice to the brief; unchanged if none is set
 		String voice = brandSettings.promptContext(user.getId());
 		String briefWithVoice = voice.isBlank() ? prompt : prompt + "\n\nBrand voice (follow strictly):\n" + voice;
+
+		// What we learned from their website + past posts (empty until analysed)
+		String facts = brandProfile.promptContext(user.getId());
+		if (!facts.isBlank())
+			briefWithVoice += "\n\nAbout the brand (use real details from here, never invent prices or offers):\n"
+					+ facts;
 
 		String caption = aiService.generateCaption(briefWithVoice, tone, channels, language);
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("caption", caption), "Caption generated."));

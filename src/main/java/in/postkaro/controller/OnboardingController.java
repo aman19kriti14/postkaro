@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import in.postkaro.dto.response.ApiResponse;
 import in.postkaro.entity.User;
+import in.postkaro.service.BrandProfileService;
 import in.postkaro.service.OnboardingService;
 import lombok.RequiredArgsConstructor;
 
@@ -20,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 public class OnboardingController {
 
 	private final OnboardingService onboardingService;
+	private final BrandProfileService brandProfile;
 
 	@PostMapping("/profile")
 	public ResponseEntity<ApiResponse<Void>> saveProfile(@AuthenticationPrincipal User user,
@@ -42,6 +44,7 @@ public class OnboardingController {
 	@PostMapping("/complete")
 	public ResponseEntity<ApiResponse<Void>> completeOnboarding(@AuthenticationPrincipal User user) {
 		onboardingService.completeOnboarding(user.getId());
+		brandProfile.startQuietly(user.getId()); // "Learn my brand" runs in the background
 		return ResponseEntity.ok(ApiResponse.ok(null, "Onboarding complete."));
 	}
 }

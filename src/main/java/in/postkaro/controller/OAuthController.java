@@ -1,26 +1,34 @@
 package in.postkaro.controller;
 
-import in.postkaro.dto.response.ApiResponse;
-import in.postkaro.entity.ConnectedAccount;
-import in.postkaro.entity.User;
-import in.postkaro.enums.SocialPlatform;
-import in.postkaro.repository.ConnectedAccountRepository;
-import in.postkaro.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestClient;
-
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+import in.postkaro.dto.response.ApiResponse;
+import in.postkaro.entity.ConnectedAccount;
+import in.postkaro.entity.User;
+import in.postkaro.enums.SocialPlatform;
+import in.postkaro.repository.ConnectedAccountRepository;
+import in.postkaro.repository.UserRepository;
+import in.postkaro.service.BrandProfileService;
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/v1/oauth")
@@ -29,6 +37,7 @@ public class OAuthController {
 
 	private final UserRepository userRepository;
 	private final ConnectedAccountRepository connectedAccountRepository;
+	private final BrandProfileService brandProfile;
 	private final RestClient restClient = RestClient.create();
 
 	@Value("${meta.ig.app.id}")
@@ -90,6 +99,9 @@ public class OAuthController {
 			} else {
 				handleFacebookCallback(code, userId);
 			}
+
+			// new account = new posts to learn from (no-op if an analysis is already running)
+			brandProfile.startQuietly(UUID.fromString(userId));
 
 			String redirectUrl = frontendUrl + "/connect-accounts?connected=" + platform;
 			return ResponseEntity.status(HttpStatus.FOUND).header(HttpHeaders.LOCATION, redirectUrl).build();
