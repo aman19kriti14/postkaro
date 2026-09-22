@@ -23,11 +23,13 @@ import in.postkaro.dto.response.PosterCopy;
 import in.postkaro.entity.Language;
 import in.postkaro.entity.Post;
 import in.postkaro.entity.User;
+import in.postkaro.enums.CreditAction;
 import in.postkaro.service.AiService;
 import in.postkaro.service.BestTimeService;
 import in.postkaro.service.BrandProfileService;
 import in.postkaro.service.BrandSettingsService;
 import in.postkaro.service.CarouselGenerator;
+import in.postkaro.service.CreditService;
 import in.postkaro.service.MediaService;
 import in.postkaro.service.PostService;
 import in.postkaro.service.PublishService;
@@ -46,6 +48,7 @@ public class PostController {
 	private final BrandProfileService brandProfile;
 	private final CarouselGenerator carouselGenerator;
 	private final BestTimeService bestTime;
+	private final CreditService creditService;
 
 	@PostMapping("/generate-caption")
 	public ResponseEntity<ApiResponse<Map<String, String>>> generateCaption(@AuthenticationPrincipal User user,
@@ -66,7 +69,10 @@ public class PostController {
 			briefWithVoice += "\n\nAbout the brand (use real details from here, never invent prices or offers):\n"
 					+ facts;
 
-		String caption = aiService.generateCaption(briefWithVoice, tone, channels, language);
+		// briefWithVoice is reassigned above, so copy it for the lambda
+		final String brief = briefWithVoice;
+		String caption = creditService.charge(user.getId(), CreditAction.CAPTION, 1,
+				() -> aiService.generateCaption(brief, tone, channels, language));
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("caption", caption), "Caption generated."));
 	}
 
@@ -78,7 +84,8 @@ public class PostController {
 		String action = (String) body.get("action");
 		Language language = parseLanguage((String) body.get("language"));
 
-		String refined = aiService.refineCaption(caption, action, language);
+		String refined = creditService.charge(user.getId(), CreditAction.REFINE_CAPTION, 1,
+				() -> aiService.refineCaption(caption, action, language));
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("caption", refined), "Caption refined."));
 	}
 
@@ -90,7 +97,8 @@ public class PostController {
 		String brandName = (String) body.get("brandName");
 		Language language = parseLanguage((String) body.get("language"));
 
-		PosterCopy copy = aiService.generatePosterCopy(topic, brandName, language);
+		PosterCopy copy = creditService.charge(user.getId(), CreditAction.POSTER_COPY, 1,
+				() -> aiService.generatePosterCopy(topic, brandName, language));
 		return ResponseEntity.ok(ApiResponse.ok(copy, "Poster copy generated."));
 	}
 
@@ -178,7 +186,10 @@ public class PostController {
 				(String) body.get("aspectRatio"), (String) body.get("contentType"), (String) body.get("language"),
 				productImageUrls, useLogo, variations);
 
-		Map<String, Object> result = mediaService.generateImage(user.getId(), req);
+		// 5 credits per variation (MediaService caps variations at 4)
+		int units = Math.max(1, Math.min(4, variations));
+		Map<String, Object> result = creditService.charge(user.getId(), CreditAction.IMAGE, units,
+				() -> mediaService.generateImage(user.getId(), req));
 		return ResponseEntity.ok(ApiResponse.ok(result, "Image generated."));
 	}
 
@@ -196,9 +207,14 @@ public class PostController {
 		int slides = body.get("slides") instanceof Number n ? n.intValue() : 5;
 		Boolean useLogo = body.get("useLogo") instanceof Boolean b ? b : Boolean.TRUE;
 
-		CarouselGenerator.CarouselResult result = carouselGenerator.generate(user.getId(),
-				new CarouselGenerator.CarouselRequest((String) body.get("prompt"), slides,
-						(String) body.get("aspectRatio"), (String) body.get("language"), productImageUrls, useLogo));
+		// 5 credits per slide (CarouselGenerator caps slides at 2-10)
+		int slideUnits = Math.max(2, Math.min(10, slides));
+		CarouselGenerator.CarouselRequest carouselReq = new CarouselGenerator.CarouselRequest(
+				(String) body.get("prompt"), slides, (String) body.get("aspectRatio"), (String) body.get("language"),
+				productImageUrls, useLogo);
+
+		CarouselGenerator.CarouselResult result = creditService.charge(user.getId(), CreditAction.CAROUSEL_SLIDE,
+				slideUnits, () -> carouselGenerator.generate(user.getId(), carouselReq));
 		return ResponseEntity.ok(ApiResponse.ok(result, "Carousel generated."));
 	}
 
@@ -206,7 +222,8 @@ public class PostController {
 	public ResponseEntity<ApiResponse<Map<String, Object>>> generateVideo(@AuthenticationPrincipal User user,
 			@RequestBody Map<String, Object> body) {
 		String prompt = (String) body.get("prompt");
-		Map<String, Object> result = mediaService.generateVideo(prompt);
+		Map<String, Object> result = creditService.charge(user.getId(), CreditAction.VIDEO, 1,
+				() -> mediaService.generateVideo(prompt));
 		return ResponseEntity.ok(ApiResponse.ok(result, "Video generated."));
 	}
 

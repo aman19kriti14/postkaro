@@ -22,8 +22,10 @@ import in.postkaro.dto.response.CampaignFlowResponse;
 import in.postkaro.dto.response.CampaignFlowResponse.Checks;
 import in.postkaro.dto.response.CampaignFlowResponse.FlowPost;
 import in.postkaro.entity.User;
+import in.postkaro.enums.CreditAction;
 import in.postkaro.repository.UserRepository;
 import in.postkaro.service.CampaignFlowService;
+import in.postkaro.service.CreditService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -33,6 +35,7 @@ public class CampaignFlowController {
 
 	private final CampaignFlowService flowService;
 	private final UserRepository userRepository;
+	private final CreditService creditService;
 
 	// Start a new campaign draft
 	@PostMapping("/drafts")
@@ -65,11 +68,13 @@ public class CampaignFlowController {
 		return ResponseEntity.noContent().build();
 	}
 
-	// Generate (or regenerate) the plan and save it as draft posts
+	// Generate (or regenerate) the plan and save it as draft posts → 10 credits
 	@PostMapping("/{id}/generate-plan")
 	public ResponseEntity<ApiResponse<CampaignFlowResponse>> generatePlan(@AuthenticationPrincipal User user,
 			@PathVariable UUID id) {
-		return ResponseEntity.ok(ApiResponse.ok(flowService.generatePlan(user.getId(), id), "Plan ready."));
+		CampaignFlowResponse res = creditService.charge(user.getId(), CreditAction.CAMPAIGN_PLAN, 1,
+				() -> flowService.generatePlan(user.getId(), id));
+		return ResponseEntity.ok(ApiResponse.ok(res, "Plan ready."));
 	}
 
 	// Edit, approve, move or set visual on one post (partial)

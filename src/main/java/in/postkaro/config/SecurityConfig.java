@@ -1,7 +1,8 @@
 package in.postkaro.config;
 
-import in.postkaro.security.JwtAuthFilter;
-import lombok.RequiredArgsConstructor;
+import java.util.Arrays;
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,8 +19,9 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.Arrays;
-import java.util.List;
+import in.postkaro.security.JwtAuthFilter;
+import in.postkaro.security.SubscriptionGuardFilter;
+import lombok.RequiredArgsConstructor;
 
 @Configuration
 @EnableWebSecurity
@@ -27,6 +29,8 @@ import java.util.List;
 public class SecurityConfig {
 
 	private final JwtAuthFilter jwtAuthFilter;
+
+	private final SubscriptionGuardFilter subscriptionGuardFilter;
 
 	@Value("${app.cors.allowed-origins}")
 	private String allowedOrigins;
@@ -39,7 +43,9 @@ public class SecurityConfig {
 						.requestMatchers("/api/v1/auth/signup", "/api/v1/auth/signin", "/api/v1/auth/refresh",
 								"/api/v1/onboarding/**", "/api/v1/oauth/callback", "/api/v1/media/**")
 						.permitAll().anyRequest().authenticated())
-				.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+				.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+				.addFilterAfter(subscriptionGuardFilter, JwtAuthFilter.class);
+		;
 
 		return http.build();
 	}

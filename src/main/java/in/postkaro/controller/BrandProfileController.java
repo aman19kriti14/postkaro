@@ -15,8 +15,10 @@ import in.postkaro.dto.request.BrandProfileDtos.AnalyzeRequest;
 import in.postkaro.dto.request.BrandProfileDtos.ApplyRequest;
 import in.postkaro.dto.request.BrandProfileDtos.BrandProfileView;
 import in.postkaro.entity.User;
+import in.postkaro.enums.CreditAction;
 import in.postkaro.repository.UserRepository;
 import in.postkaro.service.BrandProfileService;
+import in.postkaro.service.CreditService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -24,9 +26,9 @@ import lombok.RequiredArgsConstructor;
  * "We studied your brand" — website + connected accounts → brand profile +
  * starter prompts.
  *
- * POST /api/v1/brand-profile/analyze → starts in background, returns status
- * GET /api/v1/brand-profile → poll every ~2s while status = RUNNING
- * POST /api/v1/brand-profile/apply → copy findings into Settings › Brand
+ * POST /api/v1/brand-profile/analyze → starts in background, returns status GET
+ * /api/v1/brand-profile → poll every ~2s while status = RUNNING POST
+ * /api/v1/brand-profile/apply → copy findings into Settings › Brand
  */
 @RestController
 @RequestMapping("/api/v1/brand-profile")
@@ -35,15 +37,20 @@ public class BrandProfileController {
 
 	private final BrandProfileService service;
 	private final UserRepository users;
+	private final CreditService creditService;
 
 	@GetMapping
 	public BrandProfileView get(Authentication auth) {
 		return service.get(userId(auth));
 	}
 
+	// 3 credits. Refunded only if the job fails to start; it runs in the
+	// background.
 	@PostMapping("/analyze")
 	public BrandProfileView analyze(Authentication auth, @Valid @RequestBody(required = false) AnalyzeRequest body) {
-		return service.start(userId(auth), body == null ? null : body.websiteUrl());
+		UUID uid = userId(auth);
+		String websiteUrl = body == null ? null : body.websiteUrl();
+		return creditService.charge(uid, CreditAction.BRAND_ANALYZE, 1, () -> service.start(uid, websiteUrl));
 	}
 
 	@PostMapping("/apply")

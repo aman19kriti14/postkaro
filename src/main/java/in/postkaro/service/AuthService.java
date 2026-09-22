@@ -1,11 +1,14 @@
 package in.postkaro.service;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import in.postkaro.dto.request.RefreshRequest;
 import in.postkaro.dto.request.SigninRequest;
@@ -29,6 +32,7 @@ public class AuthService {
 	private final RefreshTokenRepository refreshTokenRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JwtService jwtService;
+	private final CreditService creditService;
 
 	@Transactional
 	public AuthResponse signup(SignupRequest request) {
@@ -40,6 +44,17 @@ public class AuthService {
 				.password(passwordEncoder.encode(request.getPassword())).build();
 
 		user = userRepository.save(user);
+
+		// Start the trial only after the user row is committed; CreditService uses its
+		// own transaction and would otherwise wait on this uncommitted row.
+		UUID newUserId = user.getId();
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				creditService.getOrCreate(newUserId);
+			}
+		});
+
 		return buildAuthResponse(user);
 	}
 

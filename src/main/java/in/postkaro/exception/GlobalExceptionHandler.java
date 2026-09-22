@@ -1,5 +1,6 @@
 package in.postkaro.exception;
 
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
@@ -49,4 +50,21 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(IllegalArgumentException ex) {
 		return ResponseEntity.badRequest().body(ApiResponse.error(ex.getMessage()));
 	}
+
+	@ExceptionHandler(SubscriptionRequiredException.class)
+	public ResponseEntity<ApiResponse<Map<String, Object>>> handleSubscriptionRequired(
+			SubscriptionRequiredException ex) {
+		return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+				.body(ApiResponse.<Map<String, Object>>builder().success(false).message(ex.getMessage())
+						.data(Map.of("code", "TRIAL_EXPIRED")).timestamp(java.time.Instant.now()).build());
+	}
+
+	@ExceptionHandler(InsufficientCreditsException.class)
+	public ResponseEntity<ApiResponse<Map<String, Object>>> handleInsufficientCredits(InsufficientCreditsException ex) {
+		return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+				.body(ApiResponse
+						.<Map<String, Object>>builder().success(false).message(ex.getMessage()).data(Map.of("code",
+								"INSUFFICIENT_CREDITS", "required", ex.getRequired(), "available", ex.getAvailable()))
+						.timestamp(java.time.Instant.now()).build());
+	}	
 }

@@ -23,9 +23,11 @@ import in.postkaro.dto.request.AiStudioDtos.IdeaView;
 import in.postkaro.dto.request.AiStudioDtos.SaveSetRequest;
 import in.postkaro.dto.request.AiStudioDtos.SavedSetSummary;
 import in.postkaro.entity.User;
+import in.postkaro.enums.CreditAction;
 import in.postkaro.repository.IdeaSetRepository;
 import in.postkaro.repository.UserRepository;
 import in.postkaro.service.AiStudioService;
+import in.postkaro.service.CreditService;
 import in.postkaro.service.IdeaActionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -39,13 +41,15 @@ public class AiStudioController {
 	private final IdeaActionService actions;
 	private final IdeaSetRepository sets;
 	private final UserRepository users;
+	private final CreditService creditService;
 
 	// ---------- sets ----------
 
-	// POST /api/v1/ai-studio/generate
+	// POST /api/v1/ai-studio/generate → 2 credits
 	@PostMapping("/generate")
 	public IdeaSetView generate(Authentication auth, @Valid @RequestBody GenerateRequest req) {
-		return studio.generate(userId(auth), req);
+		UUID uid = userId(auth);
+		return creditService.charge(uid, CreditAction.IDEA_SET, 1, () -> studio.generate(uid, req));
 	}
 
 	// GET /api/v1/ai-studio/latest → 204 when the user has never generated
@@ -97,10 +101,11 @@ public class AiStudioController {
 		return Map.of("postId", actions.draft(userId(auth), id));
 	}
 
-	// POST /api/v1/ai-studio/ideas/{id}/visual
+	// POST /api/v1/ai-studio/ideas/{id}/visual → 5 credits (one image)
 	@PostMapping("/ideas/{id}/visual")
 	public IdeaView visual(Authentication auth, @PathVariable UUID id) {
-		return actions.makeVisual(userId(auth), id);
+		UUID uid = userId(auth);
+		return creditService.charge(uid, CreditAction.IMAGE, 1, () -> actions.makeVisual(uid, id));
 	}
 
 	// ---------- helpers ----------

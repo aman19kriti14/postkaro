@@ -21,6 +21,7 @@ public class PostPublishScheduler {
 	private final PostRepository postRepository;
 	private final PublishService publishService;
 	private final TransactionTemplate tx;
+	private final CreditService creditService;
 
 	@Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
 	public void publishDuePosts() {
@@ -32,6 +33,19 @@ public class PostPublishScheduler {
 		}
 
 		for (UUID id : postRepository.findDueIds(now)) {
+
+			// Trial or plan has ended: don't publish, tell the user why
+			UUID ownerId = tx.execute(s -> postRepository.findById(id).map(p -> p.getUser().getId()).orElse(null));
+
+			if (ownerId != null && !creditService.hasAccess(ownerId)) {
+				tx.executeWithoutResult(s -> postRepository.findById(id).ifPresent(p -> {
+					p.setStatus(PostStatus.FAILED);
+					p.setPublishError("Your free trial has ended. Choose a plan to publish scheduled posts.");
+				}));
+				log.info("Skipped scheduled post {}: owner {} has no active plan", id, ownerId);
+				continue;
+			}
+
 			Integer claimed = tx.execute(s -> postRepository.claim(id, Instant.now()));
 			if (claimed == null || claimed == 0)
 				continue; // someone else took it

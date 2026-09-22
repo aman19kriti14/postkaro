@@ -17,8 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
 import in.postkaro.dto.response.ApiResponse;
 import in.postkaro.entity.Campaign;
 import in.postkaro.entity.User;
+import in.postkaro.enums.CreditAction;
 import in.postkaro.service.CampaignPlanService;
 import in.postkaro.service.CampaignService;
+import in.postkaro.service.CreditService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -30,10 +32,15 @@ public class CampaignController {
 
 	private final CampaignService campaignService;
 
+	private final CreditService creditService;
+
+	// 10 credits
 	@PostMapping("/plan")
 	public ResponseEntity<ApiResponse<List<Map<String, Object>>>> plan(@AuthenticationPrincipal User user,
 			@RequestBody Map<String, Object> body) {
-		return ResponseEntity.ok(ApiResponse.ok(planService.buildPlan(body), "Plan ready."));
+		List<Map<String, Object>> plan = creditService.charge(user.getId(), CreditAction.CAMPAIGN_PLAN, 1,
+				() -> planService.buildPlan(body));
+		return ResponseEntity.ok(ApiResponse.ok(plan, "Plan ready."));
 	}
 
 	@PostMapping
