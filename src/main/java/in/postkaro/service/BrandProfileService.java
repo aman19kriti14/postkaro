@@ -424,10 +424,22 @@ public class BrandProfileService {
 				- voice.tone must be exactly one of: warm, playful, informative, festive, plain.
 				- languages: subset of [english, hindi, hinglish] based on how they actually write. Default ["english"].
 				- voice.description: 2-3 sentences, written to a copywriter ("Sounds like…, uses…, never…").
-				- starterPrompts: exactly 8. Each "prompt" is 1-3 sentences the owner can paste into a post generator,
-				  naming their real products/services/offers from the material. Spread across the content pillars and formats,
-				  leaning toward the formats that perform best for them. At most 2 may use an Indian festival or season
-				  coming up in the next 6 weeks, and only if it fits this business. "why" = one short line on what evidence it's based on.
+							- starterPrompts: exactly 8 post briefs the owner will paste into a post generator.
+				  * "prompt" is an INSTRUCTION, never a caption. Start with a verb (Show, Explain, Compare, Share, Announce, Make a reel where…).
+				    25-60 words. Say what the post shows, the hook/angle, and what the visual should be.
+				    BAD:  "Let PostKaro handle your social media posts while you focus on what you love!"
+				    GOOD: "Make a reel showing a café owner typing one line into AI Studio and getting 3 ready Instagram captions in
+				           Hindi and English. Hook: 'Captions in 10 seconds'. End on the scheduler calendar filling up."
+				  * Every prompt must name at least one SPECIFIC product, service, feature or offer exactly as it appears in "offerings".
+				  * "title": specific and concrete, names the product or result, max 8 words. No slogans.
+				    BAD: "Create content effortlessly"   GOOD: "3 captions in 10 seconds with AI Studio"
+				  * Use 8 DIFFERENT angles, e.g.: product demo, how-it-works, customer problem → solution, quick tip or myth-buster,
+				    before/after, behind the scenes, comparison, FAQ answered. Testimonial/social proof only if real reviews appear
+				    in the material. Offer/discount only if the material states one.
+				  * Lean toward the formats that perform best for them (see averages). At most 1 may use an Indian festival or season
+				    in the next 6 weeks, and only if it genuinely fits this business.
+				  * "why": one short line citing real evidence — a page of their website ("Pricing page lists 4 plans") or a number
+				    from their posts ("Reels average 3x the comments"). Never vague reasons like "users are interested".
 				- format must be one of: reel, carousel, post, story.
 				- No emojis in titles. Keep everything concise.
 
@@ -443,7 +455,7 @@ public class BrandProfileService {
 				  "captionStyle": {"length": "short|medium|long", "emojis": "none|light|heavy", "hashtags": "how they use hashtags", "callToAction": "their usual CTA"},
 				  "signatureHashtags": ["#..."],
 				  "whatWorks": ["..."],
-				  "starterPrompts": [{"title": "max 8 words", "prompt": "...", "format": "reel", "pillar": "...", "why": "..."}]
+				  "starterPrompts": [{"title": "specific, max 8 words", "prompt": "Show … (instruction, 25-60 words)", "format": "reel", "pillar": "one of your contentPillars names", "why": "evidence from site or numbers"}]
 				}
 				"""
 				.formatted(today, m.toString().trim());
