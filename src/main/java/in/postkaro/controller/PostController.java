@@ -24,6 +24,7 @@ import in.postkaro.entity.Language;
 import in.postkaro.entity.Post;
 import in.postkaro.entity.User;
 import in.postkaro.service.AiService;
+import in.postkaro.service.BestTimeService;
 import in.postkaro.service.BrandProfileService;
 import in.postkaro.service.BrandSettingsService;
 import in.postkaro.service.CarouselGenerator;
@@ -44,6 +45,7 @@ public class PostController {
 	private final BrandSettingsService brandSettings;
 	private final BrandProfileService brandProfile;
 	private final CarouselGenerator carouselGenerator;
+	private final BestTimeService bestTime;
 
 	@PostMapping("/generate-caption")
 	public ResponseEntity<ApiResponse<Map<String, String>>> generateCaption(@AuthenticationPrincipal User user,
@@ -240,5 +242,12 @@ public class PostController {
 			throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, result.error());
 		}
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("published", result.published()), "Post published."));
+	}
+
+	// GET /api/v1/posts/best-time → best day + hour from the user's own post
+	// history
+	@GetMapping("/best-time")
+	public ResponseEntity<ApiResponse<BestTimeService.BestTime>> bestTime(@AuthenticationPrincipal User user) {
+		return ResponseEntity.ok(ApiResponse.ok(bestTime.forUser(user.getId()), "OK"));
 	}
 }
