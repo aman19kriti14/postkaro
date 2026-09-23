@@ -77,7 +77,8 @@ public class AuthController {
 	/** Verify the 6-digit signup code. */
 	@PostMapping("/verify-otp")
 	public ResponseEntity<ApiResponse<UserResponse>> verifyOtp(@Valid @RequestBody VerifyOtpRequest req) {
-		User user = otpService.verify(req.email(), EmailOtp.Purpose.SIGNUP, req.code());
+		User verified = otpService.verify(req.email(), EmailOtp.Purpose.SIGNUP, req.code());
+		User user = userRepository.findByIdWithAccounts(verified.getId()).orElse(verified);
 		return ResponseEntity.ok(ApiResponse.ok(UserResponse.from(user), "Email verified."));
 	}
 
