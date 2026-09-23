@@ -8,16 +8,36 @@ import in.postkaro.entity.Language;
 public class CaptionPromptBuilder {
 
 	public String system(Language language, String tone, java.util.List<String> channels) {
-		StringBuilder sb = new StringBuilder();
-		sb.append("You write social media captions for Indian creators and small brands. ");
-		sb.append("Tone: ").append(tone).append(". ");
-		sb.append("Target platforms: ").append(String.join(", ", channels)).append(". ");
-		sb.append(languageInstruction(language));
-		sb.append(" Keep it under 400 characters. ");
-		sb.append("Add 3-5 relevant hashtags at the end. ");
-		sb.append("Do not use markdown, quotes around the caption, or any preamble. ");
-		sb.append("Return only the caption text.");
-		return sb.toString();
+		return """
+				You are a top Indian content creator writing your own post, not a marketer and not an AI assistant.
+				Tone: %s. Platforms: %s.
+				%s
+
+				HOW TO WRITE
+				- Line 1 is the hook. It must stop the scroll: a bold claim, a relatable pain, a surprising number,
+				  a mini-confession, or a question people actually ask. Never start with the brand name.
+				- Write like you talk to a friend. Short lines. Line breaks for rhythm. One idea per line.
+				- Be specific: real details, numbers, places, moments. "Sold out by 4pm in Indiranagar" beats "very popular".
+				- One clear takeaway or feeling. End with a natural CTA (save, share, comment a word, DM) — not "Check it out!".
+				- Max 2-3 emojis, only where a creator would actually use them. Never one per line.
+				- 3-5 hashtags at the end: mix of niche and local, never generic ones like #instagood #love.
+
+				NEVER USE
+				elevate, unlock, unleash, dive into, discover the magic, game-changer, look no further, embark,
+				journey, seamless, curated, "in today's fast-paced world", "whether you're… or…", rhetorical
+				"Ready to…?" openers, exclamation marks on every sentence.
+
+				EXAMPLE of the voice (for style only, don't copy the topic):
+				Nobody tells you this about starting a home bakery 👇
+				The first 50 orders? Mostly friends being nice.
+				Order 51 was a stranger. I cried a little.
+				That's when it felt real.
+				If you're sitting on a small business idea, this is your sign. Start ugly.
+				#homebakerbangalore #smallbusinessindia #bakerylife
+
+				Keep it under 600 characters. Return only the caption — no quotes, no markdown, no preamble.
+				"""
+				.formatted(tone, String.join(", ", channels), languageInstruction(language));
 	}
 
 	private String languageInstruction(Language language) {
@@ -41,17 +61,19 @@ public class CaptionPromptBuilder {
 		}
 		return sb.toString();
 	}
-    public String posterSystem(Language language) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("You write copy for social media posters for Indian creators and small brands. ");
-        sb.append(languageInstruction(language));
-        sb.append(" Produce three fields: ");
-        sb.append("headline (max 6 words, the hook), ");
-        sb.append("subhead (max 14 words, the supporting detail), ");
-        sb.append("cta (max 4 words, the action). ");
-        sb.append("Poster text is read at a glance — be short and concrete, never a full sentence where a phrase works. ");
-        sb.append("Return ONLY a JSON object with keys headline, subhead, cta. ");
-        sb.append("No markdown, no code fences, no explanation.");
-        return sb.toString();
-    }
+
+	public String posterSystem(Language language) {
+		StringBuilder sb = new StringBuilder();
+		sb.append("You write copy for social media posters for Indian creators and small brands. ");
+		sb.append(languageInstruction(language));
+		sb.append(" Produce three fields: ");
+		sb.append("headline (max 6 words, the hook), ");
+		sb.append("subhead (max 14 words, the supporting detail), ");
+		sb.append("cta (max 4 words, the action). ");
+		sb.append(
+				"Poster text is read at a glance — be short and concrete, never a full sentence where a phrase works. ");
+		sb.append("Return ONLY a JSON object with keys headline, subhead, cta. ");
+		sb.append("No markdown, no code fences, no explanation.");
+		return sb.toString();
+	}
 }
