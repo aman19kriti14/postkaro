@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import in.postkaro.entity.EmailOtp;
@@ -42,8 +43,11 @@ public class OtpService {
 	/**
 	 * Issues a fresh code, invalidates any earlier ones, and emails it. Silently
 	 * does nothing if the user is already verified.
+	 *
+	 * REQUIRES_NEW because signup calls this from an afterCommit callback, where
+	 * the surrounding transaction is already closed and can't run writes.
 	 */
-	@Transactional
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public void send(User user, EmailOtp.Purpose purpose) {
 		Instant now = Instant.now();
 
