@@ -21,6 +21,9 @@ public class AiService {
 	@Value("${openai.api.key:}")
 	private String openaiApiKey;
 
+	@Value("${postkaro.ai.caption-model:gpt-4o-mini}")
+	private String captionModel;
+
 	private final RestClient restClient = RestClient.create();
 
 	private final ObjectMapper objectMapper = new ObjectMapper();
@@ -59,11 +62,19 @@ public class AiService {
 
 	@SuppressWarnings("unchecked")
 	private String callOpenAi(String systemPrompt, String userPrompt, double temperature) {
-		Map<String, Object> body = Map
-				.of("model", "gpt-4o-mini", "messages",
-						List.of(Map.of("role", "system", "content", systemPrompt),
-								Map.of("role", "user", "content", userPrompt)),
-						"max_tokens", 500, "temperature", temperature);
+		Map<String, Object> body = new java.util.HashMap<>();
+		body.put("model", captionModel);
+		body.put("messages", List.of(Map.of("role", "system", "content", systemPrompt),
+				Map.of("role", "user", "content", userPrompt)));
+
+		if (captionModel.startsWith("gpt-4")) {
+			body.put("max_tokens", 500);
+			body.put("temperature", temperature);
+		} else {
+			// GPT-5/6 and o-series: reasoning models
+			body.put("max_completion_tokens", 4000);
+			body.put("reasoning_effort", "low");
+		}
 
 		Map<String, Object> response = restClient.post().uri("https://api.openai.com/v1/chat/completions")
 				.header("Authorization", "Bearer " + openaiApiKey).contentType(MediaType.APPLICATION_JSON).body(body)
