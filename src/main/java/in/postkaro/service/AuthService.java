@@ -122,4 +122,18 @@ public class AuthService {
 			refreshTokenRepository.save(stored);
 		});
 	}
+
+	/**
+	 * Verifies the reset code, sets the new password, and signs out every device.
+	 */
+	@Transactional
+	public void resetPassword(String email, String code, String newPassword) {
+		User user = otpService.verify(email, EmailOtp.Purpose.PASSWORD_RESET, code);
+
+		user.setPassword(passwordEncoder.encode(newPassword));
+		userRepository.save(user);
+
+		// Someone may have had the old password — kill every existing session
+		refreshTokenRepository.revokeAllByUserId(user.getId());
+	}
 }

@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import in.postkaro.dto.request.LogoutRequest;
+import in.postkaro.dto.request.OtpDtos.ForgotPasswordRequest;
 import in.postkaro.dto.request.OtpDtos.ResendOtpRequest;
+import in.postkaro.dto.request.OtpDtos.ResetPasswordRequest;
 import in.postkaro.dto.request.OtpDtos.VerifyOtpRequest;
 import in.postkaro.dto.request.RefreshRequest;
 import in.postkaro.dto.request.SigninRequest;
@@ -88,6 +90,21 @@ public class AuthController {
 		userRepository.findByEmail(req.email().toLowerCase().trim())
 				.ifPresent(u -> otpService.send(u, EmailOtp.Purpose.SIGNUP));
 		return ResponseEntity.ok(ApiResponse.ok(null, "If that account exists, a new code is on its way."));
+	}
+
+	/** Sends a password reset code. Always reports success. */
+	@PostMapping("/forgot-password")
+	public ResponseEntity<ApiResponse<Void>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
+		userRepository.findByEmail(req.email().toLowerCase().trim())
+				.ifPresent(u -> otpService.send(u, EmailOtp.Purpose.PASSWORD_RESET));
+		return ResponseEntity.ok(ApiResponse.ok(null, "If that account exists, a reset code is on its way."));
+	}
+
+	/** Sets a new password using the code. */
+	@PostMapping("/reset-password")
+	public ResponseEntity<ApiResponse<Void>> resetPassword(@Valid @RequestBody ResetPasswordRequest req) {
+		authService.resetPassword(req.email(), req.code(), req.newPassword());
+		return ResponseEntity.ok(ApiResponse.ok(null, "Password updated. Sign in with your new password."));
 	}
 
 }
