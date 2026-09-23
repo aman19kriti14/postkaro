@@ -49,6 +49,13 @@ public class PromptEnhancer {
 			- NEVER invent facts: no prices, discounts, dates, phone numbers, addresses, doctor
 			  names or statistics unless the user provided them. If none given, write copy
 			  that needs none (e.g. "Book your visit today").
+			  			- SAFE ZONE: all on-image text and the logo must sit inside the central area, at
+			  least 15% away from the top and bottom edges and 10% from the sides. Instagram's
+			  profile grid crops the edges, so nothing important may touch them. Say this
+			  explicitly in the prompt.
+			- NEVER draw phone screens, laptop screens, app interfaces, documents or any small
+			  text inside the scene. They render as gibberish. Show people, products, places
+			  and moments instead.
 			- Spell every word of on-image text carefully; repeat it exactly in quotes.
 			- If hasLogoReference is true: "Place the provided logo image exactly as given,
 			  small, in a corner. Do not redraw, restyle or re-spell the logo."
