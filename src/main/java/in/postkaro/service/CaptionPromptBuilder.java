@@ -40,6 +40,24 @@ public class CaptionPromptBuilder {
 				.formatted(tone, String.join(", ", channels), languageInstruction(language));
 	}
 
+	public String variantsSystem(Language language, String tone, java.util.List<String> channels) {
+		return system(language, tone, channels).replace(
+				"Keep it under 600 characters. Return only the caption — no quotes, no markdown, no preamble.",
+				"""
+						Write THREE different captions for the same brief. Each must use a different hook style:
+						1. "pain"  — opens on a relatable frustration the audience feels
+						2. "story" — opens on a small real moment or mini-confession
+						3. "bold"  — opens on a bold claim, surprising number, or contrarian take
+
+						They must feel genuinely different, not the same caption reworded.
+						Each under 600 characters, each with its own 3-5 niche hashtags.
+
+						Return ONLY valid JSON, no markdown fences, in exactly this shape:
+						{"captions":[{"angle":"pain","text":"..."},{"angle":"story","text":"..."},{"angle":"bold","text":"..."}]}
+						Use \\n for line breaks inside "text".
+						""");
+	}
+
 	private String languageInstruction(Language language) {
 		return switch (language) {
 		case ENGLISH -> "Write in English as spoken in India.";

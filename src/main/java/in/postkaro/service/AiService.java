@@ -1,5 +1,7 @@
 package in.postkaro.service;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -8,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import in.postkaro.dto.response.PosterCopy;
@@ -31,6 +34,10 @@ public class AiService {
 	private final SarvamClient sarvamClient;
 	private final CaptionPromptBuilder promptBuilder;
 
+	/** One caption variant: which hook style it uses, and the caption itself. */
+	public record CaptionVariant(String angle, String text) {
+	}
+
 	public String generateCaption(String prompt, String tone, List<String> channels, Language language) {
 		String systemPrompt = promptBuilder.system(language, tone, channels);
 
@@ -38,6 +45,20 @@ public class AiService {
 			return sarvamClient.complete(systemPrompt, promptBuilder.user(prompt, null));
 		}
 		return callOpenAi(systemPrompt, prompt, 0.8);
+	}
+
+	/**
+	 * Three captions with different hooks (pain / story / bold) from a single AI
+	 * call.
+	 */
+	public List<CaptionVariant> generateCaptionVariants(String prompt, String tone, List<String> channels,
+			Language language) {
+		String systemPrompt = promptBuilder.variantsSystem(language, tone, channels);
+
+		String raw = language.isUseIndicModel() ? sarvamClient.complete(systemPrompt, promptBuilder.user(prompt, null))
+				: callOpenAi(systemPrompt, prompt, 0.9);
+
+		return parseVariants(raw);
 	}
 
 	public String refineCaption(String caption, String action, Language language) {
@@ -60,15 +81,27 @@ public class AiService {
 		return callOpenAi(systemPrompt, userPrompt, 0.7);
 	}
 
+	public PosterCopy generatePosterCopy(String topic, String brandName, Language language) {
+		String systemPrompt = promptBuilder.posterSystem(language);
+		String userPrompt = promptBuilder.user(topic, brandName);
+
+		String raw = language.isUseIndicModel() ? sarvamClient.complete(systemPrompt, userPrompt)
+				: callOpenAi(systemPrompt, userPrompt, 0.8);
+
+		return parsePosterCopy(raw);
+	}
+
+	// ---------------------------------------------------------------------
+
 	@SuppressWarnings("unchecked")
 	private String callOpenAi(String systemPrompt, String userPrompt, double temperature) {
-		Map<String, Object> body = new java.util.HashMap<>();
+		Map<String, Object> body = new HashMap<>();
 		body.put("model", captionModel);
 		body.put("messages", List.of(Map.of("role", "system", "content", systemPrompt),
 				Map.of("role", "user", "content", userPrompt)));
 
 		if (captionModel.startsWith("gpt-4")) {
-			body.put("max_tokens", 500);
+			body.put("max_tokens", 1500);
 			body.put("temperature", temperature);
 		} else {
 			// GPT-5/6 and o-series: reasoning models
@@ -85,28 +118,39 @@ public class AiService {
 		return ((String) message.get("content")).trim();
 	}
 
-	public PosterCopy generatePosterCopy(String topic, String brandName, Language language) {
-		String systemPrompt = promptBuilder.posterSystem(language);
-		String userPrompt = promptBuilder.user(topic, brandName);
-
-		String raw = language.isUseIndicModel() ? sarvamClient.complete(systemPrompt, userPrompt)
-				: callOpenAi(systemPrompt, userPrompt, 0.8);
-
-		return parsePosterCopy(raw);
-	}
-
-	private PosterCopy parsePosterCopy(String raw) {
+	/** Models often wrap JSON in code fences despite being told not to. */
+	private String extractJson(String raw) {
 		String cleaned = raw.trim();
-
-		// Models often wrap JSON in code fences despite being told not to
 		int start = cleaned.indexOf('{');
 		int end = cleaned.lastIndexOf('}');
 		if (start >= 0 && end > start) {
 			cleaned = cleaned.substring(start, end + 1);
 		}
+		return cleaned;
+	}
 
+	private List<CaptionVariant> parseVariants(String raw) {
 		try {
-			return objectMapper.readValue(cleaned, PosterCopy.class);
+			JsonNode captions = objectMapper.readTree(extractJson(raw)).path("captions");
+			List<CaptionVariant> out = new ArrayList<>();
+			for (JsonNode c : captions) {
+				String text = c.path("text").asText("").trim();
+				if (!text.isEmpty()) {
+					out.add(new CaptionVariant(c.path("angle").asText(""), text));
+				}
+			}
+			if (out.isEmpty()) {
+				throw new IllegalStateException("No captions in response");
+			}
+			return out;
+		} catch (Exception e) {
+			throw new IllegalStateException("Could not generate captions. Please try again.", e);
+		}
+	}
+
+	private PosterCopy parsePosterCopy(String raw) {
+		try {
+			return objectMapper.readValue(extractJson(raw), PosterCopy.class);
 		} catch (Exception e) {
 			throw new IllegalStateException("Could not generate poster copy. Please try again.", e);
 		}

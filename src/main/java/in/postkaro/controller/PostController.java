@@ -76,6 +76,38 @@ public class PostController {
 		return ResponseEntity.ok(ApiResponse.ok(Map.of("caption", caption), "Caption generated."));
 	}
 
+	@SuppressWarnings("unchecked")
+	@PostMapping("/generate-captions")
+	public ResponseEntity<ApiResponse<Map<String, Object>>> generateCaptions(@AuthenticationPrincipal User user,
+			@RequestBody Map<String, Object> body) {
+
+		String prompt = (String) body.get("prompt");
+		String tone = (String) body.getOrDefault("tone", "warm");
+		List<String> channels = (List<String>) body.getOrDefault("channels", List.of("instagram"));
+		Language language = parseLanguage((String) body.get("language"));
+
+		final String brief = buildBrief(user, prompt);
+		List<AiService.CaptionVariant> captions = creditService.charge(user.getId(), CreditAction.CAPTION, 1,
+				() -> aiService.generateCaptionVariants(brief, tone, channels, language));
+
+		return ResponseEntity.ok(ApiResponse.ok(Map.of("captions", captions), "Captions generated."));
+	}
+
+	/** The user's brief plus their saved brand voice and brand facts. */
+	private String buildBrief(User user, String prompt) {
+		String brief = prompt;
+
+		String voice = brandSettings.promptContext(user.getId());
+		if (!voice.isBlank())
+			brief += "\n\nBrand voice (follow strictly):\n" + voice;
+
+		String facts = brandProfile.promptContext(user.getId());
+		if (!facts.isBlank())
+			brief += "\n\nAbout the brand (use real details from here, never invent prices or offers):\n" + facts;
+
+		return brief;
+	}
+
 	@PostMapping("/refine-caption")
 	public ResponseEntity<ApiResponse<Map<String, String>>> refineCaption(@AuthenticationPrincipal User user,
 			@RequestBody Map<String, Object> body) {
