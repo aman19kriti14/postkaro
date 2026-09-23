@@ -10,15 +10,19 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import in.postkaro.dto.request.LogoutRequest;
+import in.postkaro.dto.request.OtpDtos.ResendOtpRequest;
+import in.postkaro.dto.request.OtpDtos.VerifyOtpRequest;
 import in.postkaro.dto.request.RefreshRequest;
 import in.postkaro.dto.request.SigninRequest;
 import in.postkaro.dto.request.SignupRequest;
 import in.postkaro.dto.response.ApiResponse;
 import in.postkaro.dto.response.AuthResponse;
 import in.postkaro.dto.response.UserResponse;
+import in.postkaro.entity.EmailOtp;
 import in.postkaro.entity.User;
 import in.postkaro.repository.UserRepository;
 import in.postkaro.service.AuthService;
+import in.postkaro.service.OtpService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -29,6 +33,8 @@ public class AuthController {
 
 	private final AuthService authService;
 	private final UserRepository userRepository;
+	private final OtpService otpService;
+	// private final UserRepository userRepository;
 
 	@PostMapping("/signup")
 	public ResponseEntity<ApiResponse<AuthResponse>> signup(@Valid @RequestBody SignupRequest request) {
@@ -64,6 +70,24 @@ public class AuthController {
 	public ResponseEntity<Void> logout(@RequestBody LogoutRequest request) {
 		authService.logout(request.getRefreshToken());
 		return ResponseEntity.noContent().build();
+	}
+
+	/** Verify the 6-digit signup code. */
+	@PostMapping("/verify-otp")
+	public ResponseEntity<ApiResponse<UserResponse>> verifyOtp(@Valid @RequestBody VerifyOtpRequest req) {
+		User user = otpService.verify(req.email(), EmailOtp.Purpose.SIGNUP, req.code());
+		return ResponseEntity.ok(ApiResponse.ok(UserResponse.from(user), "Email verified."));
+	}
+
+	/**
+	 * Send a fresh code. Always reports success, so it can't be used to probe for
+	 * accounts.
+	 */
+	@PostMapping("/resend-otp")
+	public ResponseEntity<ApiResponse<Void>> resendOtp(@Valid @RequestBody ResendOtpRequest req) {
+		userRepository.findByEmail(req.email().toLowerCase().trim())
+				.ifPresent(u -> otpService.send(u, EmailOtp.Purpose.SIGNUP));
+		return ResponseEntity.ok(ApiResponse.ok(null, "If that account exists, a new code is on its way."));
 	}
 
 }

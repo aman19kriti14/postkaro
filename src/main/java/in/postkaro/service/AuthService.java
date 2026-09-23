@@ -15,6 +15,7 @@ import in.postkaro.dto.request.SigninRequest;
 import in.postkaro.dto.request.SignupRequest;
 import in.postkaro.dto.response.AuthResponse;
 import in.postkaro.dto.response.UserResponse;
+import in.postkaro.entity.EmailOtp;
 import in.postkaro.entity.RefreshToken;
 import in.postkaro.entity.User;
 import in.postkaro.exception.DuplicateEmailException;
@@ -33,6 +34,7 @@ public class AuthService {
 	private final PasswordEncoder passwordEncoder;
 	private final JwtService jwtService;
 	private final CreditService creditService;
+	private final OtpService otpService;
 
 	@Transactional
 	public AuthResponse signup(SignupRequest request) {
@@ -52,6 +54,7 @@ public class AuthService {
 			@Override
 			public void afterCommit() {
 				creditService.getOrCreate(newUserId);
+				userRepository.findById(newUserId).ifPresent(u -> otpService.send(u, EmailOtp.Purpose.SIGNUP));
 			}
 		});
 

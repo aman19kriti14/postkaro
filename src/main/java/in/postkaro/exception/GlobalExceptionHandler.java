@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import in.postkaro.dto.response.ApiResponse;
+import in.postkaro.service.OtpService;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -66,5 +67,10 @@ public class GlobalExceptionHandler {
 						.<Map<String, Object>>builder().success(false).message(ex.getMessage()).data(Map.of("code",
 								"INSUFFICIENT_CREDITS", "required", ex.getRequired(), "available", ex.getAvailable()))
 						.timestamp(java.time.Instant.now()).build());
-	}	
+	}
+
+	@ExceptionHandler(OtpService.OtpException.class)
+	public ResponseEntity<ApiResponse<Void>> handleOtp(OtpService.OtpException ex) {
+		return ResponseEntity.badRequest().body(ApiResponse.error(ex.getMessage()));
+	}
 }

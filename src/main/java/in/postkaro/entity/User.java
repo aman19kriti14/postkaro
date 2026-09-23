@@ -68,4 +68,8 @@ public class User {
 	private Instant updatedAt;
 	@OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
 	private UserProfile profile;
+	
+	@Builder.Default
+	@Column(nullable = false)
+	private boolean emailVerified = false;
 }

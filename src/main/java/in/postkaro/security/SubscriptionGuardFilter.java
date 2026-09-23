@@ -26,8 +26,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Once the trial (or paid period) ends, the account becomes read-only: GET
- * requests still work, anything that creates, generates or publishes gets 402.
+ * Keeps an account read-only when it isn't allowed to create: email not yet
+ * verified (403 EMAIL_NOT_VERIFIED), or trial/plan ended (402 TRIAL_EXPIRED).
+ * GET requests always pass, so users can still see their work.
  */
 @Component
 @RequiredArgsConstructor
@@ -35,7 +36,7 @@ public class SubscriptionGuardFilter extends OncePerRequestFilter {
 
 	private static final Set<String> READ_METHODS = Set.of("GET", "HEAD", "OPTIONS");
 
-	/** Writes that stay allowed after expiry, so users can log out and pay. */
+	/** Writes that stay allowed, so users can verify, log out and pay. */
 	private static final List<String> ALWAYS_ALLOWED = List.of("/api/v1/auth/", "/api/v1/billing/", "/api/v1/admin/");
 
 	private final CreditService creditService;
@@ -52,18 +53,27 @@ public class SubscriptionGuardFilter extends OncePerRequestFilter {
 			return;
 		}
 
+		if (!user.isEmailVerified()) {
+			reject(response, HttpStatus.FORBIDDEN, "EMAIL_NOT_VERIFIED", "Verify your email to start creating.");
+			return;
+		}
+
 		if (creditService.hasAccess(user.getId())) {
 			chain.doFilter(request, response);
 			return;
 		}
 
-		response.setStatus(HttpStatus.PAYMENT_REQUIRED.value());
+		reject(response, HttpStatus.PAYMENT_REQUIRED, "TRIAL_EXPIRED",
+				"Your free trial has ended. Choose a plan to keep creating and publishing.");
+	}
+
+	private void reject(HttpServletResponse response, HttpStatus status, String code, String message)
+			throws IOException {
+		response.setStatus(status.value());
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		response.setCharacterEncoding("UTF-8");
-		objectMapper.writeValue(response.getWriter(),
-				ApiResponse.<Map<String, Object>>builder().success(false)
-						.message("Your free trial has ended. Choose a plan to keep creating and publishing.")
-						.data(Map.of("code", "TRIAL_EXPIRED")).timestamp(Instant.now()).build());
+		objectMapper.writeValue(response.getWriter(), ApiResponse.<Map<String, Object>>builder().success(false)
+				.message(message).data(Map.of("code", code)).timestamp(Instant.now()).build());
 	}
 
 	private boolean isAlwaysAllowed(String uri) {
