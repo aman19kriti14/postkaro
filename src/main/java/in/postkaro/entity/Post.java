@@ -52,7 +52,7 @@ public class Post {
 	@Column(columnDefinition = "TEXT")
 	private String caption;
 
-	@Column(length = 500)
+	@Column(columnDefinition = "text")
 	private String prompt;
 
 	@Column(length = 30)

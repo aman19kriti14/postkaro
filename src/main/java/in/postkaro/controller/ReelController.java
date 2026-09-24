@@ -16,7 +16,6 @@ import org.springframework.web.server.ResponseStatusException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import in.postkaro.dto.response.ApiResponse;
-import in.postkaro.entity.Post;
 import in.postkaro.entity.User;
 import in.postkaro.enums.CreditAction;
 import in.postkaro.enums.PlanTier;
@@ -27,7 +26,9 @@ import in.postkaro.service.ReelPlannerService;
 import in.postkaro.service.PostService;
 import in.postkaro.service.ReelRenderService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/reels")
 @RequiredArgsConstructor
@@ -136,12 +137,20 @@ public class ReelController {
 		draft.put("media", List.of(Map.of("url", result.url(), "type", "video")));
 		draft.put("mediaUrl", result.url());
 		draft.put("mediaType", "video");
-		Post post = postService.createDraft(user, draft);
+		Object draftId = null;
+		try {
+			draftId = postService.createDraft(user, draft).getId();
+		} catch (RuntimeException e) {
+			// The reel is rendered and paid for — return it even if the draft can't be
+			// saved
+			log.error("Couldn't save reel draft for user {} (reel {})", user.getId(), result.url(), e);
+		}
 
 		Map<String, Object> out = new HashMap<>();
 		out.put("reel", result);
-		out.put("draftId", post.getId());
-		return ResponseEntity.ok(ApiResponse.ok(out, "Reel ready and saved to Drafts."));
+		out.put("draftId", draftId);
+		return ResponseEntity.ok(ApiResponse.ok(out, draftId != null ? "Reel ready and saved to Drafts."
+				: "Reel ready. Download it — it couldn't be saved to Drafts."));
 	}
 
 	/** The brief plus the saved brand voice and brand facts, same as captions. */
