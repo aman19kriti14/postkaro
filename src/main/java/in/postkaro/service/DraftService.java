@@ -42,8 +42,10 @@ public class DraftService {
 			contentType = "TEXT";
 		else if (media.size() > 1)
 			contentType = "CAROUSEL";
-		else
-			contentType = String.valueOf(media.get(0).getType());
+		else {
+			String type = String.valueOf(media.get(0).getType());
+			contentType = "VIDEO".equalsIgnoreCase(type) ? "REEL" : type;
+		}
 
 		List<String> channels = List.copyOf(p.getChannels());
 		boolean hasChannel = !channels.isEmpty();
