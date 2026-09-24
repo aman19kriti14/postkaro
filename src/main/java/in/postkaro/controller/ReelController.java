@@ -1,5 +1,6 @@
 package in.postkaro.controller;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -15,6 +16,7 @@ import org.springframework.web.server.ResponseStatusException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import in.postkaro.dto.response.ApiResponse;
+import in.postkaro.entity.Post;
 import in.postkaro.entity.User;
 import in.postkaro.enums.CreditAction;
 import in.postkaro.enums.PlanTier;
@@ -22,6 +24,7 @@ import in.postkaro.service.BrandProfileService;
 import in.postkaro.service.BrandSettingsService;
 import in.postkaro.service.CreditService;
 import in.postkaro.service.ReelPlannerService;
+import in.postkaro.service.PostService;
 import in.postkaro.service.ReelRenderService;
 import lombok.RequiredArgsConstructor;
 
@@ -39,6 +42,7 @@ public class ReelController {
 	private final BrandSettingsService brandSettings;
 	private final BrandProfileService brandProfile;
 	private final ObjectMapper objectMapper;
+	private final PostService postService;
 
 	/**
 	 * Plans a reel from a brief and up to 5 photos. Body: { prompt, photoUrls:
@@ -71,12 +75,13 @@ public class ReelController {
 
 	/**
 	 * Renders a plan into an MP4. Body: { plan: <the plan from /plan>, photoUrls:
-	 * [same list, same order as /plan], musicUrl: optional, quality: "quick" |
-	 * "cinematic" }. Quick takes ~30-60 s; cinematic animates the hook and payoff
-	 * shots with AI video and takes ~2-3 min.
+	 * [same list, same order as /plan], musicUrl: optional, prompt, tone, channels:
+	 * optional (for the draft), quality: "quick" | "cinematic" }. Quick takes
+	 * ~30-60 s; cinematic animates the hook and payoff shots with AI video and
+	 * takes ~2-3 min.
 	 */
 	@PostMapping("/render")
-	public ResponseEntity<ApiResponse<ReelRenderService.RenderResult>> render(@AuthenticationPrincipal User user,
+	public ResponseEntity<ApiResponse<Map<String, Object>>> render(@AuthenticationPrincipal User user,
 			@RequestBody Map<String, Object> body) {
 
 		ReelPlannerService.ReelPlan plan;
@@ -117,7 +122,22 @@ public class ReelController {
 		ReelRenderService.RenderResult result = creditService.charge(user.getId(), CreditAction.REEL_RENDER, units,
 				() -> renderer.render(finalPlan, photoUrls, musicUrl, cinematic));
 
-		return ResponseEntity.ok(ApiResponse.ok(result, "Reel ready."));
+		// Save it to Drafts straight away. The reel is paid for, so it must never be
+		// lost — even if the user closes the tab while it renders.
+		Map<String, Object> draft = new HashMap<>();
+		draft.put("caption", result.caption());
+		draft.put("prompt", body.getOrDefault("prompt", finalPlan.hook()));
+		draft.put("tone", body.get("tone"));
+		draft.put("channels", body.get("channels") instanceof List<?> ch ? ch : List.of("instagram"));
+		draft.put("media", List.of(Map.of("url", result.url(), "type", "video")));
+		draft.put("mediaUrl", result.url());
+		draft.put("mediaType", "video");
+		Post post = postService.createDraft(user, draft);
+
+		Map<String, Object> out = new HashMap<>();
+		out.put("reel", result);
+		out.put("draftId", post.getId());
+		return ResponseEntity.ok(ApiResponse.ok(out, "Reel ready and saved to Drafts."));
 	}
 
 	/** The brief plus the saved brand voice and brand facts, same as captions. */
