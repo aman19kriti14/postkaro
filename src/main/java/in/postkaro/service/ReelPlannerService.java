@@ -40,8 +40,17 @@ public class ReelPlannerService {
 	 * One shot of the reel. Either a user photo (photoIndex) or an AI image
 	 * (imagePrompt).
 	 */
+	/**
+	 * One shot of the reel. Either a user photo (photoIndex) or an AI image
+	 * (imagePrompt). treatment: "full" fills the frame; "card" floats the image
+	 * over a blurred backdrop — for screenshots, posters, anything with text.
+	 */
 	public record Shot(String source, Integer photoIndex, String imagePrompt, String camera, String aiMotion,
-			String text, double seconds) {
+			String text, double seconds, String treatment) {
+
+		public boolean card() {
+			return "card".equals(treatment);
+		}
 	}
 
 	public record ReelPlan(String hook, List<Shot> shots, String musicMood, int bpm, String colorGrade,
@@ -71,8 +80,15 @@ public class ReelPlannerService {
 			USING THE USER'S PHOTOS
 			- Look at every photo. Use ALL usable photos, in the order that tells the best story,
 			  not the order uploaded. Refer to them by photoIndex (0-based).
-			- You may reuse the best photo twice with a different camera move (e.g. hook + payoff).
+			- NEVER use the same photo in two shots in a row. Reuse a photo at most once overall.
 			- If a photo is blurry or irrelevant, skip it.
+			- "treatment" for every user photo: "card" if it is an app screenshot, website, document,
+			  poster, flyer, menu or anything with text or UI; "full" for real-world photos (people,
+			  places, products). AI shots are always "full".
+			- Card shots (screenshots/UI) are for explaining, not for wow: keep each to 1.5-2s and never
+			  more than 2 card shots in a row. The hook (shot 1) must be a "full" shot.
+			- If a photo is a finished design or poster (the result the product made), it is the PAYOFF:
+			  place it right after the build-up, give it 2.5-3s, and put the payoff text on it.
 			- If there are fewer photos than the story needs, add AI shots (source "ai") with a
 			  detailed imagePrompt that MATCHES the look of the user's photos: same setting,
 			  lighting, colours and style, so the reel feels shot by one person.
@@ -102,7 +118,7 @@ public class ReelPlannerService {
 			Return ONLY valid JSON, no markdown:
 			{"hook":"...","musicMood":"...","bpm":110,"colorGrade":"warm_film","caption":"...",
 			 "shots":[{"source":"upload","photoIndex":0,"imagePrompt":"","camera":"push_in",
-			           "aiMotion":"...","text":"...","seconds":2.0}]}
+			           "aiMotion":"...","text":"...","seconds":2.0,"treatment":"full"}]}
 			""";
 
 	public ReelPlan plan(String brief, List<String> photoUrls, String language, String tone) {
@@ -160,6 +176,7 @@ public class ReelPlannerService {
 		try {
 			JsonNode json = objectMapper.readTree(cleaned);
 			List<Shot> shots = new ArrayList<>();
+			Integer lastPhoto = null;
 
 			for (JsonNode s : json.path("shots")) {
 				String source = s.path("source").asText("ai");
@@ -175,10 +192,18 @@ public class ReelPlannerService {
 					continue;
 				}
 
+				// Same photo twice in a row reads as a glitch — keep the first one
+				if ("upload".equals(source) && photoIndex.equals(lastPhoto)) {
+					continue;
+				}
+				lastPhoto = "upload".equals(source) ? photoIndex : null;
+
+				String treatment = "upload".equals(source) && "card".equals(s.path("treatment").asText("")) ? "card"
+						: "full";
 				double seconds = Math.max(1.2, Math.min(4.0, s.path("seconds").asDouble(2.5)));
 				shots.add(new Shot(source, "upload".equals(source) ? photoIndex : null, imagePrompt,
 						s.path("camera").asText("push_in"), s.path("aiMotion").asText(""), s.path("text").asText(""),
-						seconds));
+						seconds, treatment));
 			}
 
 			if (shots.size() < 2) {

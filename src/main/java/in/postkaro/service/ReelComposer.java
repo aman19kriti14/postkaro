@@ -48,8 +48,11 @@ public class ReelComposer {
 	/**
 	 * One shot, ready to render. {@code media} is a still image (we add the camera
 	 * move) or, when {@code video} is true, an AI-animated clip (used as it moves).
+	 * {@code card} shows a still as a floating card over a blurred backdrop instead
+	 * of filling the frame — for app screenshots, posters and anything with text.
 	 */
-	public record Clip(Path media, boolean video, String camera, String text, double seconds, boolean cta) {
+	public record Clip(Path media, boolean video, boolean card, String camera, String text, double seconds,
+			boolean cta) {
 	}
 
 	private final Map<String, Font> fontCache = new ConcurrentHashMap<>();
@@ -78,10 +81,13 @@ public class ReelComposer {
 				boolean last = i == clips.size() - 1;
 
 				Path textFile = workDir.resolve("text_" + i + ".png");
+				Path cardFile = workDir.resolve("card_" + i + ".jpg");
 				Path out = workDir.resolve("shot_" + i + ".mp4");
 				jobs.add(pool.submit(() -> {
 					Path text = renderText(clip.text(), clip.cta(), textFile);
-					renderShot(clip, duration, grade, text, last, out);
+					Clip ready = clip.card() && !clip.video() ? new Clip(renderCard(clip.media(), cardFile), false,
+							true, clip.camera(), clip.text(), clip.seconds(), clip.cta()) : clip;
+					renderShot(ready, duration, grade, text, last, out);
 					return null;
 				}));
 
@@ -115,7 +121,10 @@ public class ReelComposer {
 		String t = fmt(total);
 		if (music != null) {
 			cmd.addAll(List.of("-stream_loop", "-1", "-i", music.toAbsolutePath().toString(), "-map", "0:v", "-map",
-					"1:a", "-af", "afade=t=in:st=0:d=0.15,afade=t=out:st=" + fmt(Math.max(0, total - 1.2)) + ":d=1.2"));
+					"1:a", "-af",
+					// Loud and even like other reels (-14 LUFS), then short fades at both ends
+					"loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.15,afade=t=out:st="
+							+ fmt(Math.max(0, total - 1.2)) + ":d=1.2"));
 		} else {
 			cmd.addAll(List.of("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-map", "0:v", "-map", "1:a"));
 		}
@@ -161,7 +170,9 @@ public class ReelComposer {
 					text.toString()));
 			double in = 0.12; // text lands just after the cut
 			double rise = 0.35;
-			double y = clip.cta() ? 0.58 : 0.40; // centre of the text block, as a share of height
+			// Centre of the text block, as a share of height. On a card shot the text
+			// goes above the card so it never covers the screenshot or poster.
+			double y = clip.card() ? 0.15 : clip.cta() ? 0.58 : 0.40;
 			f.append(";[1:v]format=rgba,fade=t=in:st=").append(in).append(":d=0.25:alpha=1[txt];")
 					.append("[bg][txt]overlay=x=(W-w)/2:y='H*").append(y).append("-h/2+60*pow(max(0,1-(t-").append(in)
 					.append(")/").append(rise).append("),2)':shortest=1,format=yuv420p[v]");
@@ -212,6 +223,87 @@ public class ReelComposer {
 		case "soft_pastel" -> "eq=contrast=0.92:saturation=0.85:brightness=0.04";
 		default -> "eq=contrast=1.06:saturation=1.1,colorbalance=rs=0.05:gs=0.02:bs=-0.05,vignette=PI/5"; // warm_film
 		};
+	}
+
+	// ---------------------------------------------------------------------
+	// Screen card: a screenshot or poster floating over a blurred version of itself
+
+	/**
+	 * Builds a 4K (2160x3840) still: the image, blurred and darkened, fills the
+	 * frame; the image itself sits on top as a rounded card with a soft shadow. The
+	 * camera move is applied to this still afterwards, like any other photo.
+	 */
+	Path renderCard(Path source, Path out) throws IOException {
+		BufferedImage src = ImageIO.read(source.toFile());
+		if (src == null) {
+			throw new IOException("Can't read image " + source);
+		}
+		int W = 2160;
+		int H = 3840;
+
+		BufferedImage canvas = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+		Graphics2D g = canvas.createGraphics();
+		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+		// 1. Backdrop: shrink hard, scale back up = a smooth blur, cheap
+		double cover = Math.max((double) W / src.getWidth(), (double) H / src.getHeight());
+		int tinyW = Math.max(4, (int) (src.getWidth() * cover / 64));
+		int tinyH = Math.max(4, (int) (src.getHeight() * cover / 64));
+		BufferedImage tiny = new BufferedImage(tinyW, tinyH, BufferedImage.TYPE_INT_RGB);
+		Graphics2D tg = tiny.createGraphics();
+		tg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		tg.drawImage(src, 0, 0, tinyW, tinyH, null);
+		tg.dispose();
+		int bgW = (int) (src.getWidth() * cover);
+		int bgH = (int) (src.getHeight() * cover);
+		// Upscale in 2x bilinear steps: one big jump leaves visible blocks
+		BufferedImage bg = tiny;
+		while (bg.getWidth() * 2 < bgW) {
+			BufferedImage next = new BufferedImage(bg.getWidth() * 2, bg.getHeight() * 2, BufferedImage.TYPE_INT_RGB);
+			Graphics2D ng = next.createGraphics();
+			ng.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+			ng.drawImage(bg, 0, 0, next.getWidth(), next.getHeight(), null);
+			ng.dispose();
+			bg = next;
+		}
+		g.drawImage(bg, (W - bgW) / 2, (H - bgH) / 2, bgW, bgH, null);
+		g.setColor(new Color(0, 0, 0, 95)); // darken so the card stands out
+		g.fillRect(0, 0, W, H);
+
+		// 2. The card: fits in the lower part of the frame (86% wide, up to 64% tall),
+		// leaving the top clear for the on-screen text
+		double fit = Math.min(W * 0.86 / src.getWidth(), H * 0.64 / src.getHeight());
+		int cw = (int) (src.getWidth() * fit);
+		int ch = (int) (src.getHeight() * fit);
+		int cx = (W - cw) / 2;
+		int cy = (int) (H * 0.58 - ch / 2.0);
+		cy = Math.max((int) (H * 0.25), Math.min(cy, H - ch - (int) (H * 0.07)));
+		int radius = 56;
+
+		// Soft shadow: stacked translucent rounded rects, growing outward
+		for (int i = 12; i >= 1; i--) {
+			int spread = i * 6;
+			g.setColor(new Color(0, 0, 0, 10));
+			g.fillRoundRect(cx - spread, cy - spread + 24, cw + spread * 2, ch + spread * 2, radius + spread,
+					radius + spread);
+		}
+
+		// Image clipped to rounded corners
+		java.awt.Shape clip = new java.awt.geom.RoundRectangle2D.Float(cx, cy, cw, ch, radius, radius);
+		g.setClip(clip);
+		g.drawImage(src, cx, cy, cw, ch, null);
+		g.setClip(null);
+
+		// Thin light border so it reads as a "screen"
+		g.setColor(new Color(255, 255, 255, 60));
+		g.setStroke(new java.awt.BasicStroke(4f));
+		g.draw(clip);
+		g.dispose();
+
+		ImageIO.write(canvas, "jpg", out.toFile());
+		return out;
 	}
 
 	// ---------------------------------------------------------------------

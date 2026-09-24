@@ -62,12 +62,26 @@ public class ReelRenderService {
 	}
 
 	/**
-	 * Which shots get real AI motion in cinematic mode: the hook, and the final
-	 * payoff shot.
+	 * Which shots get real AI motion in cinematic mode: the first and the last
+	 * full-frame shots. Card shots (screenshots, posters) are never animated — AI
+	 * motion would warp their text.
 	 */
 	public static List<Integer> animatedShots(ReelPlannerService.ReelPlan plan) {
-		int n = plan.shots().size();
-		return n <= 1 ? List.of(0) : List.of(0, n - 1);
+		List<ReelPlannerService.Shot> shots = plan.shots();
+		Integer first = null;
+		Integer last = null;
+		for (int i = 0; i < shots.size(); i++) {
+			if (!shots.get(i).card()) {
+				if (first == null) {
+					first = i;
+				}
+				last = i;
+			}
+		}
+		if (first == null) {
+			return List.of();
+		}
+		return first.equals(last) ? List.of(first) : List.of(first, last);
 	}
 
 	/**
@@ -170,10 +184,11 @@ public class ReelRenderService {
 				Path clip = clipFiles.containsKey(i) ? clipFiles.get(i).join() : null;
 				if (clip != null) {
 					animated++;
-					clips.add(new ReelComposer.Clip(clip, true, shot.camera(), shot.text(), shot.seconds(), last));
+					clips.add(
+							new ReelComposer.Clip(clip, true, false, shot.camera(), shot.text(), shot.seconds(), last));
 				} else {
-					clips.add(new ReelComposer.Clip(stillFiles.get(i).join(), false, shot.camera(), shot.text(),
-							shot.seconds(), last));
+					clips.add(new ReelComposer.Clip(stillFiles.get(i).join(), false, shot.card(), shot.camera(),
+							shot.text(), shot.seconds(), last));
 				}
 			}
 
