@@ -46,12 +46,14 @@ public class ReelRenderService {
 	private final FalImageClient falImageClient;
 	private final MediaService mediaService;
 	private final FalVideoClient falVideoClient;
+	private final FalMusicClient falMusicClient;
 
 	private final ReelComposer composer = new ReelComposer();
 	private final HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL)
 			.connectTimeout(Duration.ofSeconds(20)).build();
 
-	public record RenderResult(String url, double seconds, int shots, int animatedShots, String caption) {
+	public record RenderResult(String url, double seconds, int shots, int animatedShots, boolean music,
+			String caption) {
 	}
 
 	/** How many shots in a plan need an AI image — used to price the render. */
@@ -70,11 +72,13 @@ public class ReelRenderService {
 
 	/**
 	 * @param photoUrls the same list, in the same order, that was sent to /plan
-	 * @param musicUrl  optional audio file URL; null renders with a silent track
+	 * @param musicUrl  the user's own track (uploaded to our storage); wins over
+	 *                  autoMusic
+	 * @param autoMusic compose an original track from the plan's mood and BPM
 	 * @param cinematic animate the hook and payoff shots with AI image-to-video
 	 */
 	public RenderResult render(ReelPlannerService.ReelPlan plan, List<String> photoUrls, String musicUrl,
-			boolean cinematic) {
+			boolean autoMusic, boolean cinematic) {
 		Path work = null;
 		ExecutorService pool = Executors.newFixedThreadPool(6);
 		try {
@@ -138,9 +142,24 @@ public class ReelRenderService {
 				}
 			}
 
-			CompletableFuture<Path> music = musicUrl == null || musicUrl.isBlank()
-					? CompletableFuture.completedFuture(null)
-					: CompletableFuture.supplyAsync(() -> download(musicUrl, dir.resolve("music")), pool);
+			// Music runs alongside the images and animation, so it adds no waiting
+			CompletableFuture<Path> music;
+			if (musicUrl != null && !musicUrl.isBlank()) {
+				music = CompletableFuture.supplyAsync(() -> download(musicUrl, dir.resolve("music")), pool);
+			} else if (autoMusic) {
+				music = CompletableFuture.supplyAsync(() -> {
+					try {
+						String track = falMusicClient.compose(plan.musicMood(), plan.bpm());
+						return download(track, dir.resolve("music"));
+					} catch (RuntimeException e) {
+						// A reel without music beats no reel at all
+						log.warn("Music generation failed, rendering silent: {}", e.getMessage());
+						return null;
+					}
+				}, pool);
+			} else {
+				music = CompletableFuture.completedFuture(null);
+			}
 
 			// 3. Build the clips once everything is ready
 			List<ReelComposer.Clip> clips = new ArrayList<>();
@@ -160,7 +179,8 @@ public class ReelRenderService {
 
 			// 4. Render
 			long start = System.currentTimeMillis();
-			Path reel = composer.compose(clips, plan.bpm(), plan.colorGrade(), music.join(), dir);
+			Path track = music.join();
+			Path reel = composer.compose(clips, plan.bpm(), plan.colorGrade(), track, dir);
 			log.info("Rendered reel: {} shots, {} animated, in {} ms", clips.size(), animated,
 					System.currentTimeMillis() - start);
 
@@ -168,7 +188,7 @@ public class ReelRenderService {
 			String url = mediaService.storeBytes(Files.readAllBytes(reel), "video/mp4");
 			double seconds = probeSeconds(reel);
 
-			return new RenderResult(url, seconds, clips.size(), animated, plan.caption());
+			return new RenderResult(url, seconds, clips.size(), animated, track != null, plan.caption());
 
 		} catch (CompletionException e) {
 			Throwable cause = e.getCause() != null ? e.getCause() : e;

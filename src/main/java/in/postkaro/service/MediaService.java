@@ -292,7 +292,7 @@ public class MediaService {
 	 */
 	public String storeBytes(byte[] bytes, String contentType) {
 		String dataUri = "data:" + contentType + ";base64," + java.util.Base64.getEncoder().encodeToString(bytes);
-		String resourceType = contentType.startsWith("video/") ? "video" : "image";
+		String resourceType = contentType.startsWith("video/") || contentType.startsWith("audio/") ? "video" : "image";
 		return uploadAs(dataUri, resourceType);
 	}
 

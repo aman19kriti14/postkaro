@@ -101,6 +101,10 @@ public class ReelController {
 				? l.stream().filter(String.class::isInstance).map(String.class::cast).toList()
 				: List.of();
 		String musicUrl = (String) body.get("musicUrl");
+		// music: "auto" (default) = AI composes an original track; "none" = silent;
+		// or pass musicUrl with the user's own uploaded track
+		boolean hasOwnTrack = musicUrl != null && !musicUrl.isBlank();
+		boolean autoMusic = !hasOwnTrack && !"none".equalsIgnoreCase((String) body.getOrDefault("music", "auto"));
 		boolean cinematic = "cinematic".equalsIgnoreCase((String) body.getOrDefault("quality", "quick"));
 
 		// Cinematic (real AI motion) is a Growth-and-above feature. Trial users can
@@ -114,13 +118,13 @@ public class ReelController {
 		}
 
 		// Credits, in REEL_RENDER units (5 credits each):
-		// 1 for the render, 1 per AI-created image, 5 per animated shot
+		// 1 for the render, 1 per AI-created image, 1 for AI music, 5 per animated shot
 		final ReelPlannerService.ReelPlan finalPlan = plan;
-		int units = 1 + ReelRenderService.aiShotCount(finalPlan)
+		int units = 1 + ReelRenderService.aiShotCount(finalPlan) + (autoMusic ? 1 : 0)
 				+ (cinematic ? ReelRenderService.animatedShots(finalPlan).size() * ANIMATED_SHOT_UNITS : 0);
 
 		ReelRenderService.RenderResult result = creditService.charge(user.getId(), CreditAction.REEL_RENDER, units,
-				() -> renderer.render(finalPlan, photoUrls, musicUrl, cinematic));
+				() -> renderer.render(finalPlan, photoUrls, musicUrl, autoMusic, cinematic));
 
 		// Save it to Drafts straight away. The reel is paid for, so it must never be
 		// lost — even if the user closes the tab while it renders.

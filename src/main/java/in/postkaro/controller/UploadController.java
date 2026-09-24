@@ -28,17 +28,20 @@ public class UploadController {
 	private static final Set<String> IMAGE_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
 	private static final Set<String> LOGO_TYPES = Set.of("image/png", "image/jpeg", "image/webp", "image/svg+xml");
 	private static final Set<String> VIDEO_TYPES = Set.of("video/mp4", "video/quicktime");
+	private static final Set<String> AUDIO_TYPES = Set.of("audio/mpeg", "audio/mp3", "audio/mp4", "audio/x-m4a",
+			"audio/aac", "audio/wav", "audio/x-wav", "audio/wave", "audio/ogg");
 
 	private static final long MAX_IMAGE = 10L * 1024 * 1024; // 10 MB
 	private static final long MAX_VIDEO = 25L * 1024 * 1024; // 25 MB
+	private static final long MAX_AUDIO = 15L * 1024 * 1024; // 15 MB
 
 	private final MediaService mediaService;
 	private final UserRepository users;
 
 	/**
 	 * POST /api/v1/uploads (multipart/form-data) file: the file kind: "logo" |
-	 * "media" (media = Create Post uploads) → { "url": "...", "type": "image" |
-	 * "video" }
+	 * "media" (media = Create Post uploads) | "audio" (a reel's music track) → {
+	 * "url": "...", "type": "image" | "video" | "audio" }
 	 */
 	@PostMapping
 	public Map<String, String> upload(Authentication auth, @RequestParam("file") MultipartFile file,
@@ -52,16 +55,22 @@ public class UploadController {
 		String type = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
 		boolean isLogo = "logo".equals(kind);
 		boolean isVideo = VIDEO_TYPES.contains(type);
+		boolean isAudio = "audio".equals(kind);
 
-		if (isLogo) {
+		if (isAudio) {
+			if (!AUDIO_TYPES.contains(type))
+				throw bad("Music must be an MP3, M4A, WAV or OGG file");
+			if (file.getSize() > MAX_AUDIO)
+				throw bad("Music files must be under 15 MB");
+		} else if (isLogo) {
 			if (!LOGO_TYPES.contains(type))
 				throw bad("Logo must be PNG, JPG, WebP or SVG");
 		} else if (!IMAGE_TYPES.contains(type) && !isVideo) {
 			throw bad("Upload a JPG, PNG, WebP image or an MP4 video");
 		}
 
-		long limit = isVideo ? MAX_VIDEO : MAX_IMAGE;
-		if (file.getSize() > limit) {
+		long limit = isAudio ? MAX_AUDIO : isVideo ? MAX_VIDEO : MAX_IMAGE;
+		if (!isAudio && file.getSize() > limit) {
 			throw bad(isVideo ? "Videos must be under 25 MB" : "Images must be under 10 MB");
 		}
 
@@ -70,7 +79,7 @@ public class UploadController {
 			if (url == null || url.isBlank())
 				throw new IllegalStateException("No URL returned");
 			log.info("Upload ({}) by {}: {} bytes → {}", kind, userId, file.getSize(), url);
-			return Map.of("url", url, "type", isVideo ? "video" : "image");
+			return Map.of("url", url, "type", isAudio ? "audio" : isVideo ? "video" : "image");
 		} catch (ResponseStatusException e) {
 			throw e;
 		} catch (Exception e) {
