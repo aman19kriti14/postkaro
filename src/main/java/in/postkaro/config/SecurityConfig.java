@@ -21,6 +21,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import in.postkaro.security.JwtAuthFilter;
 import in.postkaro.security.SubscriptionGuardFilter;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
 @Configuration
@@ -46,7 +47,15 @@ public class SecurityConfig {
 										"/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
 										"/api/v1/onboarding/**", "/api/v1/oauth/callback", "/api/v1/media/**")
 								.permitAll().anyRequest().authenticated())
-				.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+				// Missing/expired token -> 401 JSON (Spring's default here is an empty 403,
+				// which the frontend can't tell apart from "not allowed", so it never
+				// refreshes)
+				.exceptionHandling(ex -> ex.authenticationEntryPoint((request, response, authException) -> {
+					response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+					response.setContentType("application/json");
+					response.getWriter().write(
+							"{\"success\":false,\"message\":\"Your session has expired. Please sign in again.\",\"data\":{\"code\":\"TOKEN_EXPIRED\"}}");
+				})).addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
 				.addFilterAfter(subscriptionGuardFilter, JwtAuthFilter.class);
 		;
 

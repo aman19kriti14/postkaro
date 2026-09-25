@@ -144,6 +144,8 @@ public class CampaignService {
 	private String lifecycle(Campaign c) {
 		if (c.getStatus() == CampaignStatus.DRAFT)
 			return "draft";
+		if (c.getStatus() == CampaignStatus.STOPPED)
+			return "stopped";
 		LocalDate today = LocalDate.now(IST);
 		if (c.getStartsOn() != null && today.isBefore(c.getStartsOn()))
 			return "upcoming";
