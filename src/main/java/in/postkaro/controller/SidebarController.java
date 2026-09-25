@@ -34,7 +34,8 @@ public class SidebarController {
 		LocalDate today = LocalDate.now(CalendarService.IST);
 
 		int calendar = calendarService.getMonth(userId, YearMonth.from(today), null, 3).summary().total();
-		long campaigns = campaignRepository.countByUserIdAndEndsOnGreaterThanEqual(userId, today);
+		long campaigns = campaignRepository.countByUserIdAndEndsOnGreaterThanEqualAndStatusNot(userId, today,
+				in.postkaro.enums.CampaignStatus.STOPPED);
 		long drafts = postRepository.countByUserIdAndStatus(userId, PostStatus.DRAFT);
 		long needsReview = postRepository.countByUserIdAndStatus(userId, PostStatus.NEEDS_REVIEW);
 

@@ -1,6 +1,7 @@
 package in.postkaro.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,7 +43,7 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 			select distinct p from Post p
 			left join p.campaign c
 			where p.user.id = :userId
-			  and (c is null or c.status <> in.postkaro.enums.CampaignStatus.DRAFT)
+			  and (c is null or c.status not in (in.postkaro.enums.CampaignStatus.DRAFT, in.postkaro.enums.CampaignStatus.STOPPED))
 			  and (
 			        (p.status = in.postkaro.enums.PostStatus.PUBLISHED
 			            and p.publishedAt >= :from and p.publishedAt < :to)
@@ -147,7 +148,7 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 			left join p.campaign c
 			where p.user.id = :userId
 			  and p.status in (in.postkaro.enums.PostStatus.SCHEDULED, in.postkaro.enums.PostStatus.NEEDS_REVIEW)
-			  and (c is null or c.status <> in.postkaro.enums.CampaignStatus.DRAFT)
+			  and (c is null or c.status not in (in.postkaro.enums.CampaignStatus.DRAFT, in.postkaro.enums.CampaignStatus.STOPPED))
 			  and p.scheduledAt >= :from and p.scheduledAt < :to
 			""")
 	long dashCountUpcoming(@Param("userId") UUID userId, @Param("from") Instant from, @Param("to") Instant to);
@@ -169,9 +170,34 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
 			  and p.status in (in.postkaro.enums.PostStatus.SCHEDULED,
 			                   in.postkaro.enums.PostStatus.NEEDS_REVIEW,
 			                   in.postkaro.enums.PostStatus.DRAFT)
-			  and (c is null or c.status <> in.postkaro.enums.CampaignStatus.DRAFT)
+			  and (c is null or c.status not in (in.postkaro.enums.CampaignStatus.DRAFT, in.postkaro.enums.CampaignStatus.STOPPED))
 			  and p.scheduledAt >= :now
 			order by p.scheduledAt asc
 			""")
 	List<Post> dashUpNext(@Param("userId") UUID userId, @Param("now") Instant now, Pageable page);
+
+	// ---------- unschedule / stop / delete ----------
+
+	// Moves a post only if it's still in `from`. Returns 0 if the publisher
+	// already claimed it, so unschedule can't race with publishing.
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("update Post p set p.status = :to, p.updatedAt = :now where p.id = :id and p.status = :from")
+	int moveStatus(@Param("id") UUID id, @Param("from") PostStatus from, @Param("to") PostStatus to,
+			@Param("now") Instant now);
+
+	// Same for every post of a campaign (Stop campaign)
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update Post p set p.status = :to, p.updatedAt = :now
+			where p.campaign.id = :campaignId and p.status in :from
+			""")
+	int moveCampaignPosts(@Param("campaignId") UUID campaignId, @Param("from") Collection<PostStatus> from,
+			@Param("to") PostStatus to, @Param("now") Instant now);
+
+	long countByCampaignIdAndStatus(UUID campaignId, PostStatus status);
+
+	// Delete campaign: posts that already went out are kept, just unlinked
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("update Post p set p.campaign = null where p.campaign.id = :campaignId")
+	int detachFromCampaign(@Param("campaignId") UUID campaignId);
 }

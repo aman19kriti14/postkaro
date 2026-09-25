@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,6 +34,7 @@ import in.postkaro.service.CreditService;
 import in.postkaro.service.MediaService;
 import in.postkaro.service.PostService;
 import in.postkaro.service.PublishService;
+import in.postkaro.service.ScheduleControlService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -49,6 +51,7 @@ public class PostController {
 	private final CarouselGenerator carouselGenerator;
 	private final BestTimeService bestTime;
 	private final CreditService creditService;
+	private final ScheduleControlService scheduleControl;
 
 	@PostMapping("/generate-caption")
 	public ResponseEntity<ApiResponse<Map<String, String>>> generateCaption(@AuthenticationPrincipal User user,
@@ -298,5 +301,18 @@ public class PostController {
 	@GetMapping("/best-time")
 	public ResponseEntity<ApiResponse<BestTimeService.BestTime>> bestTime(@AuthenticationPrincipal User user) {
 		return ResponseEntity.ok(ApiResponse.ok(bestTime.forUser(user.getId()), "OK"));
+	}
+
+	// Scheduled -> Draft (keeps the time so it can be rescheduled)
+	@PostMapping("/{id}/unschedule")
+	public ResponseEntity<ApiResponse<Map<String, Object>>> unschedule(@AuthenticationPrincipal User user,
+			@PathVariable UUID id) {
+		return ResponseEntity.ok(ApiResponse.ok(scheduleControl.unschedulePost(id, user.getId()), "Post unscheduled."));
+	}
+
+	@DeleteMapping("/{id}")
+	public ResponseEntity<ApiResponse<Void>> deletePost(@AuthenticationPrincipal User user, @PathVariable UUID id) {
+		scheduleControl.deletePost(id, user.getId());
+		return ResponseEntity.ok(ApiResponse.ok(null, "Post deleted."));
 	}
 }

@@ -23,12 +23,17 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
 			where c.user.id = :userId
 			  and c.startsOn <= :to
 			  and c.endsOn >= :from
+			  and c.status <> in.postkaro.enums.CampaignStatus.STOPPED
 			order by c.startsOn
 			""")
 	List<Campaign> findOverlapping(@Param("userId") UUID userId, @Param("from") LocalDate from,
 			@Param("to") LocalDate to);
 
 	long countByUserIdAndEndsOnGreaterThanEqual(UUID userId, LocalDate date);
+
+	// Sidebar badge: live campaigns, stopped ones left out
+	long countByUserIdAndEndsOnGreaterThanEqualAndStatusNot(UUID userId, LocalDate date,
+			in.postkaro.enums.CampaignStatus status);
 
 	List<Campaign> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
