@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +27,7 @@ import in.postkaro.enums.CreditAction;
 import in.postkaro.repository.UserRepository;
 import in.postkaro.service.CampaignFlowService;
 import in.postkaro.service.CreditService;
+import in.postkaro.service.ScheduleControlService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -36,6 +38,7 @@ public class CampaignFlowController {
 	private final CampaignFlowService flowService;
 	private final UserRepository userRepository;
 	private final CreditService creditService;
+	private final ScheduleControlService scheduleControl;
 
 	// Start a new campaign draft
 	@PostMapping("/drafts")
@@ -119,5 +122,20 @@ public class CampaignFlowController {
 	public ResponseEntity<ApiResponse<CampaignFlowResponse>> duplicate(@AuthenticationPrincipal User user,
 			@PathVariable UUID id) {
 		return ResponseEntity.ok(ApiResponse.ok(flowService.duplicate(user, id), "Duplicated."));
+	}
+
+	// Stop: nothing else publishes; scheduled posts go back to Draft
+	@PostMapping("/{id}/stop")
+	public ResponseEntity<ApiResponse<Map<String, Object>>> stop(@AuthenticationPrincipal User user,
+			@PathVariable UUID id) {
+		return ResponseEntity.ok(ApiResponse.ok(scheduleControl.stopCampaign(id, user.getId()), "Campaign stopped."));
+	}
+
+	// Delete: removes the campaign and its unpublished posts; published posts are
+	// kept
+	@DeleteMapping("/{id}")
+	public ResponseEntity<ApiResponse<Map<String, Object>>> delete(@AuthenticationPrincipal User user,
+			@PathVariable UUID id) {
+		return ResponseEntity.ok(ApiResponse.ok(scheduleControl.deleteCampaign(id, user.getId()), "Campaign deleted."));
 	}
 }
